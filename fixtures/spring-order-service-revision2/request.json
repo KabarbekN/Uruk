@@ -1,0 +1,42 @@
+{
+  "contractVersion": "1.0",
+  "analysisId": "golden-order-analysis-revision2",
+  "organizationId": "golden-org",
+  "projectId": "golden-orders",
+  "revision": {
+    "commitSha": "2222222222222222222222222222222222222222",
+    "branch": "main"
+  },
+  "component": {
+    "rootPath": ".",
+    "languages": [
+      "JAVA"
+    ],
+    "frameworks": [
+      "SPRING_BOOT",
+      "JPA"
+    ],
+    "buildSystem": "MAVEN"
+  },
+  "requestedCapabilities": [
+    "SYMBOLS",
+    "ENDPOINTS",
+    "CALL_GRAPH",
+    "VALIDATIONS",
+    "AUTHORIZATION",
+    "DATABASE_ACCESS",
+    "SIDE_EFFECTS",
+    "CONDITIONS",
+    "TEST_LINKS"
+  ],
+  "changedFiles": [],
+  "policy": {
+    "networkAccess": "DENY",
+    "executeBuildScripts": false,
+    "resolveDependencies": false,
+    "includeTests": true,
+    "includeGeneratedSources": false,
+    "maxDurationSeconds": 120,
+    "maxOutputBytes": 268435456
+  }
+}

@@ -1,0 +1,17 @@
+.cache/
+.runtime/
+**/target/
+**/node_modules/
+**/dist/
+**/__pycache__/
+**/.venv/
+**/.deps/
+**/.test-output/
+frontend/test-results/
+frontend/playwright-report/
+output/
+.env
+*.log
+*.pid
+.idea/
+.DS_Store

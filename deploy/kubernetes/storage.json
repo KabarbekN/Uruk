@@ -1,0 +1,10 @@
+{
+  "apiVersion": "v1",
+  "kind": "PersistentVolumeClaim",
+  "metadata": {"name": "semanticmap-artifacts", "namespace": "semanticmap"},
+  "spec": {
+    "accessModes": ["ReadWriteMany"],
+    "storageClassName": "replace-with-rwx-storage-class",
+    "resources": {"requests": {"storage": "50Gi"}}
+  }
+}

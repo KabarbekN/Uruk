@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog">
+  <changeSet id="xml-orders" author="fixture">
+    <createTable schemaName="public" tableName="xml_orders">
+      <column name="id" type="bigint" autoIncrement="true">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="created_at" type="timestamptz" defaultValueComputed="now()"/>
+      <column name="amount" type="numeric" defaultValueNumeric="500"/>
+    </createTable>
+    <addColumn schemaName="public" tableName="xml_orders">
+      <column name="status" type="text" defaultValue="NEW"/>
+    </addColumn>
+    <addCheckConstraint schemaName="public" tableName="xml_orders" constraintName="positive_amount" constraintBody="amount &gt;= 0"/>
+    <createIndex schemaName="public" tableName="xml_orders" indexName="xml_amount_idx">
+      <column name="amount"/>
+    </createIndex>
+    <sql><![CDATA[
+SELECT status, count(*) FILTER (WHERE amount > 500) AS high_count
+FROM public.xml_orders
+GROUP BY status;
+    ]]></sql>
+    <rollback>
+      <sql>CREATE TABLE public.rollback_only(id integer);</sql>
+    </rollback>
+  </changeSet>
+  <include file="included.yaml" relativeToChangelogFile="true"/>
+</databaseChangeLog>

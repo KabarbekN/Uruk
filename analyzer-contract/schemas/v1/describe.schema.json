@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semanticmap.io/schemas/v1/describe.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["contractVersion", "id", "version", "languages", "frameworks", "capabilities", "executionMode", "metadata"],
+  "properties": {"contractVersion": {"const": "1.0"}, "id": {"type": "string"}, "version": {"type": "string"}, "languages": {"type": "array", "items": {"type": "string"}}, "frameworks": {"type": "array", "items": {"type": "string"}}, "capabilities": {"type": "array", "items": {"type": "string"}}, "executionMode": {"const": "SAFE_STATIC"}, "metadata": {"type": "object", "additionalProperties": true}}
+}

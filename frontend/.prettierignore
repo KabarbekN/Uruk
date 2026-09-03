@@ -1,0 +1,7 @@
+node_modules
+dist
+pnpm-lock.yaml
+src/shared/api/generated.ts
+test-results
+playwright-report
+output

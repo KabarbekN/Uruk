@@ -1,0 +1,551 @@
+openapi: 3.0.3
+info:
+  title: Semantic Business Map API
+  version: 1.0.0
+  description: Evidence-first application contract. Source for generated frontend types. No graph snippets are returned by the canvas endpoint.
+servers:
+  - url: /api/v1
+paths:
+  /projects:
+    get:
+      operationId: listProjects
+      responses:
+        '200':
+          description: Projects visible to the current user
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Project' } }
+    post:
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectInput' }
+      responses:
+        '201':
+          description: Created project
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+  /projects/{projectId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    patch:
+      operationId: updateProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectInput' }
+      responses:
+        '200':
+          description: Updated project
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+    delete:
+      operationId: deleteProject
+      responses:
+        '204': { description: Project archived; immutable history and audit are preserved }
+  /projects/{projectId}/repositories:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      operationId: addRepository
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RepositoryInput' }
+      responses:
+        '201':
+          description: Attached repository
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Repository' }
+  /projects/{projectId}/analysis-runs:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: listAnalysisRuns
+      responses:
+        '200':
+          description: Analysis history
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/AnalysisRun' } }
+    post:
+      operationId: startAnalysis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnalysisInput' }
+      responses:
+        '201':
+          description: Queued analysis run
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalysisRun' }
+  /analysis-runs/{analysisRunId}:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      operationId: getAnalysisRun
+      responses:
+        '200':
+          description: Run state; progress is a percentage from 0 to 100
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AnalysisRun' }
+  /analysis-runs/{analysisRunId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    post:
+      operationId: cancelAnalysis
+      responses:
+        '200': { description: Cancellation accepted; client refreshes run state }
+        '204': { description: Cancellation accepted }
+  /analysis-runs/{analysisRunId}/events:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+      - in: header
+        name: Last-Event-ID
+        schema: { type: string }
+        description: Last received SSE id; events must have an id for automatic browser replay
+    get:
+      operationId: streamAnalysisEvents
+      description: SSE messages may be unnamed or have event names equal to their data.type. Clients handle all event names, preserve Last-Event-ID on reconnect, and deduplicate by sequenceNumber.
+      responses:
+        '200':
+          description: Server sent events, data JSON matches AnalysisEvent
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /analysis-runs/{analysisRunId}/canvas:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      operationId: getCanvas
+      parameters:
+        - in: query
+          name: view
+          schema: { $ref: '#/components/schemas/CanvasView' }
+        - in: query
+          name: depth
+          schema: { type: integer, minimum: 1, maximum: 5, default: 2 }
+        - in: query
+          name: levelOfDetail
+          schema: { type: integer, minimum: 0, maximum: 3, default: 2 }
+        - in: query
+          name: onlyChanged
+          schema: { type: boolean, default: false }
+        - in: query
+          name: minConfidence
+          schema: { type: number, minimum: 0, maximum: 1, default: 0 }
+        - in: query
+          name: rootNodeId
+          schema: { type: string }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        '200':
+          description: Bounded projection with no source snippets
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CanvasProjection' }
+  /analysis-runs/{analysisRunId}/layout:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+      - in: query
+        name: view
+        required: true
+        schema: { $ref: '#/components/schemas/CanvasView' }
+    get:
+      operationId: getLayout
+      responses:
+        '200':
+          description: Stable key positions and viewport; new layouts return empty positions
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CanvasLayout' }
+        '404': { description: No saved layout }
+    put:
+      operationId: saveLayout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CanvasLayout' }
+      responses:
+        '200': { description: Layout saved }
+        '204': { description: Layout saved }
+  /semantic/nodes/{nodeId}:
+    parameters:
+      - $ref: '#/components/parameters/NodeId'
+    get:
+      operationId: getSemanticNode
+      responses:
+        '200':
+          description: Node and separate interpretation layers
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SemanticNodeDetail' }
+  /semantic/nodes/{nodeId}/evidence:
+    parameters:
+      - $ref: '#/components/parameters/NodeId'
+    get:
+      operationId: getNodeEvidence
+      responses:
+        '200':
+          description: Evidence with exact source locations
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Evidence' } }
+  /semantic/edges/{edgeId}/evidence:
+    parameters:
+      - name: edgeId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getEdgeEvidence
+      responses:
+        '200':
+          description: Evidence explaining the selected relationship
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Evidence' } }
+  /semantic/nodes/{nodeId}/reviews:
+    parameters:
+      - $ref: '#/components/parameters/NodeId'
+    post:
+      operationId: reviewNode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewInput' }
+      responses:
+        '200': { description: Review recorded }
+        '201': { description: Review recorded }
+        '204': { description: Review recorded }
+  /projects/{projectId}/review-queue:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: getReviewQueue
+      responses:
+        '200':
+          description: Nodes awaiting review
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/SemanticNode' } }
+  /projects/{projectId}/semantic-diff:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      operationId: getSemanticDiff
+      parameters:
+        - in: query
+          name: fromAnalysisRun
+          required: true
+          schema: { type: string }
+        - in: query
+          name: toAnalysisRun
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Deterministic semantic changes between two runs
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/SemanticChange' } }
+  /analysis-runs/{analysisRunId}/coverage:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      operationId: getCoverage
+      responses:
+        '200':
+          $ref: '#/components/responses/Inspection'
+  /analysis-runs/{analysisRunId}/diagnostics:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      operationId: getDiagnostics
+      responses:
+        '200':
+          $ref: '#/components/responses/Inspection'
+  /analysis-runs/{analysisRunId}/analyzer-plan:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      operationId: getAnalyzerPlan
+      responses:
+        '200':
+          $ref: '#/components/responses/Inspection'
+  /analysis-runs/{analysisRunId}/quarantined-facts:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      operationId: getQuarantinedFacts
+      responses:
+        '200':
+          $ref: '#/components/responses/Inspection'
+  /analysis-runs/{analysisRunId}/unresolved-symbols:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      operationId: getUnresolvedSymbols
+      responses:
+        '200':
+          $ref: '#/components/responses/Inspection'
+  /settings:
+    get:
+      operationId: getSettings
+      responses:
+        '200':
+          description: Effective platform settings
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Settings' }
+    put:
+      operationId: updateSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SettingsInput' }
+      responses:
+        '200': { description: Settings saved; client refreshes effective settings }
+        '204': { description: Settings saved }
+components:
+  parameters:
+    ProjectId:
+      in: path
+      name: projectId
+      required: true
+      schema: { type: string }
+    RunId:
+      in: path
+      name: analysisRunId
+      required: true
+      schema: { type: string }
+    NodeId:
+      in: path
+      name: nodeId
+      required: true
+      schema: { type: string }
+  responses:
+    Inspection:
+      description: Structured diagnostic data; fields vary by analyzer capability
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InspectionData'
+    Problem:
+      description: RFC 7807 error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    ProjectInput:
+      type: object
+      required: [name, description, repositoryPath]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+        repositoryPath: { type: string, maxLength: 2000 }
+    Project:
+      allOf:
+        - $ref: '#/components/schemas/ProjectInput'
+        - type: object
+          required: [id, createdAt]
+          properties:
+            id: { type: string }
+            createdAt: { type: string }
+    RepositoryInput:
+      type: object
+      required: [url, branch]
+      properties:
+        url: { type: string, minLength: 1 }
+        branch: { type: string, minLength: 1 }
+    Repository:
+      allOf:
+        - $ref: '#/components/schemas/RepositoryInput'
+        - type: object
+          required: [id]
+          properties:
+            id: { type: string }
+    AnalysisInput:
+      type: object
+      properties:
+        baselineRunId: { type: string, format: uuid }
+        ref: { type: string }
+    AnalysisRun:
+      type: object
+      required: [id, projectId, status, revision, createdAt, finishedAt, progress, currentStage]
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        status: { type: string }
+        revision: { type: string, nullable: true }
+        createdAt: { type: string }
+        finishedAt: { type: string, nullable: true }
+        progress: { type: number, minimum: 0, maximum: 100 }
+        currentStage: { type: string, nullable: true }
+    AnalysisEvent:
+      type: object
+      required: [sequenceNumber, type, message, progress, createdAt]
+      properties:
+        sequenceNumber: { type: integer, minimum: 0 }
+        type: { type: string }
+        message: { type: string }
+        progress: { type: number, minimum: 0, maximum: 100 }
+        createdAt: { type: string }
+    CanvasView:
+      type: string
+      enum: [BUSINESS, DEVELOPER, DATA_OWNERSHIP, SECURITY, DATA_PIPELINE, CONFIDENCE]
+    SemanticNode:
+      type: object
+      required: [id, stableKey, kind, label, subtitle, confidence, supportLevel, evidenceCount, reviewStatus, badges, properties]
+      properties:
+        id: { type: string }
+        stableKey: { type: string }
+        kind: { type: string }
+        label: { type: string }
+        subtitle: { type: string, nullable: true }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        supportLevel: { type: string }
+        evidenceCount: { type: integer, minimum: 0 }
+        reviewStatus: { type: string }
+        badges: { type: array, items: { type: string } }
+        properties: { type: object, additionalProperties: {} }
+    SemanticNodeDetail:
+      allOf:
+        - $ref: '#/components/schemas/SemanticNode'
+        - type: object
+          properties:
+            facts: { type: array, items: {} }
+            scenarios: { type: array, items: {} }
+            assertions: { type: array, items: {} }
+            enrichments: { type: array, items: {} }
+            reviews: { type: array, items: {} }
+    SemanticEdge:
+      type: object
+      required: [id, source, target, kind, label, confidence, evidenceCount]
+      properties:
+        id: { type: string }
+        source: { type: string }
+        target: { type: string }
+        kind: { type: string }
+        label: { type: string, nullable: true }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        evidenceCount: { type: integer, minimum: 0 }
+    CanvasProjection:
+      type: object
+      required: [nodes, edges, truncated, totalNodes]
+      properties:
+        nodes: { type: array, items: { $ref: '#/components/schemas/SemanticNode' } }
+        edges: { type: array, items: { $ref: '#/components/schemas/SemanticEdge' } }
+        truncated: { type: boolean }
+        totalNodes: { type: integer, minimum: 0 }
+    CanvasLayout:
+      type: object
+      required: [positions, viewport]
+      properties:
+        positions:
+          type: object
+          additionalProperties:
+            type: object
+            required: [x, y]
+            properties:
+              x: { type: number }
+              y: { type: number }
+        viewport:
+          type: object
+          required: [x, y, zoom]
+          properties:
+            x: { type: number }
+            y: { type: number }
+            zoom: { type: number, minimum: 0.01, maximum: 10 }
+    Evidence:
+      type: object
+      required: [id, filePath, startLine, endLine, snippet, snippetHash, analyzerId, analyzerVersion, imageDigest, origin, verified]
+      properties:
+        id: { type: string }
+        filePath: { type: string }
+        startLine: { type: integer, minimum: 1 }
+        endLine: { type: integer, minimum: 1 }
+        snippet: { type: string, nullable: true }
+        snippetHash: { type: string, nullable: true }
+        analyzerId: { type: string }
+        analyzerVersion: { type: string, nullable: true }
+        imageDigest: { type: string, nullable: true }
+        origin: { type: string }
+        verified: { type: boolean }
+        sourceAvailable:
+          type: boolean
+          description: False when retention has removed the source snippet; evidence metadata remains available.
+    ReviewInput:
+      type: object
+      required: [decision, comment, editedTitle, editedDescription]
+      properties:
+        decision:
+          type: string
+          enum: [CONFIRMED, REJECTED, EDITED, MERGED, MARKED_TECHNICAL, NEEDS_REVIEW]
+        comment: { type: string }
+        editedTitle: { type: string }
+        editedDescription: { type: string }
+        mergeTargetId: { type: string, format: uuid }
+    SemanticChange:
+      type: object
+      required: [id, changeType, subjectStableKey, impactType, before, after, beforeEvidenceIds, afterEvidenceIds, confidence]
+      properties:
+        id: { type: string }
+        changeType: { type: string }
+        subjectStableKey: { type: string }
+        impactType: { type: string }
+        before: {}
+        after: {}
+        beforeEvidenceIds: { type: array, items: { type: string } }
+        afterEvidenceIds: { type: array, items: { type: string } }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+    SettingsInput:
+      type: object
+      required: [aiMode, remoteAllowed, retentionDays]
+      properties:
+        aiMode: { type: string, enum: [DISABLED, LOCAL_PROVIDER, REMOTE_PROVIDER] }
+        remoteAllowed: { type: boolean }
+        retentionDays: { type: integer, minimum: 1, maximum: 365 }
+    Settings:
+      type: object
+      required: [aiMode, remoteAllowed, authMode, retentionDays, capabilities]
+      properties:
+        aiMode: { type: string }
+        remoteAllowed: { type: boolean }
+        authMode: { type: string }
+        retentionDays: { type: integer, minimum: 1, maximum: 365 }
+        capabilities:
+          oneOf:
+            - { type: array, items: { type: string } }
+            - { type: object, additionalProperties: {} }
+    InspectionData:
+      oneOf:
+        - { type: object, additionalProperties: {} }
+        - { type: array, items: {} }
+    Problem:
+      type: object
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        errorCode: { type: string }
+        correlationId: { type: string }
+        fieldErrors: {}

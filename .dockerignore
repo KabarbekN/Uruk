@@ -1,0 +1,15 @@
+.git
+.cache
+.runtime
+**/node_modules
+**/target
+**/.venv
+**/.deps
+**/__pycache__
+**/.test-output
+**/*.log
+output
+frontend/dist
+frontend/output
+frontend/test-results
+frontend/playwright-report

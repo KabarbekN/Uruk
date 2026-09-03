@@ -1,0 +1,25 @@
+{
+  "databaseChangeLog": [
+    {
+      "changeSet": {
+        "id": "json-orders",
+        "author": "fixture",
+        "changes": [
+          {
+            "createTable": {
+              "schemaName": "public",
+              "tableName": "json_orders",
+              "columns": [
+                {"column": {"name": "id", "type": "bigint"}},
+                {"column": {"name": "parent_id", "type": "bigint"}}
+              ]
+            }
+          },
+          {"addPrimaryKey": {"schemaName": "public", "tableName": "json_orders", "columnNames": "id", "constraintName": "json_pk"}},
+          {"addForeignKeyConstraint": {"baseTableSchemaName": "public", "baseTableName": "json_orders", "baseColumnNames": "parent_id", "referencedTableSchemaName": "public", "referencedTableName": "xml_orders", "referencedColumnNames": "id", "constraintName": "json_parent_fk"}},
+          {"sql": {"sql": "SELECT count(DISTINCT parent_id) FROM public.json_orders WHERE id > 0;"}}
+        ]
+      }
+    }
+  ]
+}

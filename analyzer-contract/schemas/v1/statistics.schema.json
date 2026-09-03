@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semanticmap.io/schemas/v1/statistics.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["contractVersion", "factCount", "diagnosticCount", "factsByKind", "metadata"],
+  "properties": {"contractVersion": {"const": "1.0"}, "factCount": {"type": "integer", "minimum": 0}, "diagnosticCount": {"type": "integer", "minimum": 0}, "factsByKind": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}, "metadata": {"type": "object", "additionalProperties": true}}
+}

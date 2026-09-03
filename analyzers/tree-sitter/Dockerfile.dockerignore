@@ -1,0 +1,6 @@
+**/.deps
+**/node_modules
+**/__pycache__
+**/.test-output
+**/target
+.git

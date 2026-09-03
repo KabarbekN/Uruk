@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semanticmap.io/schemas/v1/manifest.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["contractVersion", "analyzer", "status", "capabilitiesCompleted", "capabilitiesPartial", "capabilitiesFailed", "factCount", "diagnosticCount", "startedAt", "finishedAt"],
+  "properties": {
+    "contractVersion": {"const": "1.0"},
+    "analyzer": {"type": "object", "additionalProperties": false, "required": ["id", "version", "imageDigest"], "properties": {"id": {"type": "string"}, "version": {"type": "string"}, "imageDigest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"}}},
+    "status": {"enum": ["SUCCEEDED", "PARTIAL", "FAILED"]},
+    "capabilitiesCompleted": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "capabilitiesPartial": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "capabilitiesFailed": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "factCount": {"type": "integer", "minimum": 0}, "diagnosticCount": {"type": "integer", "minimum": 0},
+    "startedAt": {"type": "string", "format": "date-time"}, "finishedAt": {"type": "string", "format": "date-time"}
+  }
+}

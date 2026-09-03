@@ -1,0 +1,3 @@
+-r ../shared/requirements.txt
+pglast==7.11
+PyYAML==6.0.3

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semanticmap.io/schemas/v1/request.schema.json",
+  "title": "Analyzer request v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["contractVersion", "analysisId", "organizationId", "projectId", "revision", "component", "requestedCapabilities", "changedFiles", "policy"],
+  "properties": {
+    "contractVersion": {"const": "1.0"},
+    "analysisId": {"type": "string", "minLength": 1},
+    "organizationId": {"type": "string", "minLength": 1},
+    "projectId": {"type": "string", "minLength": 1},
+    "revision": {"type": "object", "additionalProperties": false, "required": ["commitSha", "branch"], "properties": {"commitSha": {"type": "string", "minLength": 1}, "branch": {"type": "string"}}},
+    "component": {"type": "object", "additionalProperties": false, "required": ["rootPath", "languages", "frameworks", "buildSystem"], "properties": {"rootPath": {"type": "string"}, "languages": {"type": "array", "items": {"type": "string"}, "minItems": 1, "uniqueItems": true}, "frameworks": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "buildSystem": {"type": "string"}}},
+    "requestedCapabilities": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true},
+    "changedFiles": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "policy": {"type": "object", "additionalProperties": false, "required": ["networkAccess", "executeBuildScripts", "resolveDependencies", "includeTests", "includeGeneratedSources", "maxDurationSeconds", "maxOutputBytes"], "properties": {"networkAccess": {"enum": ["DENY", "ALLOW"]}, "executeBuildScripts": {"type": "boolean"}, "resolveDependencies": {"type": "boolean"}, "includeTests": {"type": "boolean"}, "includeGeneratedSources": {"type": "boolean"}, "maxDurationSeconds": {"type": "integer", "minimum": 1, "maximum": 86400}, "maxOutputBytes": {"type": "integer", "minimum": 1, "maximum": 2147483648}}}
+  }
+}

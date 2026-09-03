@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semanticmap.io/schemas/v1/coverage.schema.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["contractVersion", "filesDiscovered", "filesParsed", "filesFailed", "capabilities", "metadata"],
+  "properties": {"contractVersion": {"const": "1.0"}, "filesDiscovered": {"type": "integer", "minimum": 0}, "filesParsed": {"type": "integer", "minimum": 0}, "filesFailed": {"type": "integer", "minimum": 0}, "capabilities": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["name", "status", "limitations"], "properties": {"name": {"type": "string"}, "status": {"enum": ["COMPLETED", "PARTIAL", "FAILED"]}, "limitations": {"type": "array", "items": {"type": "string"}}}}}, "metadata": {"type": "object", "additionalProperties": true}}
+}

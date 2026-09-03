@@ -1,0 +1,36 @@
+databaseChangeLog:
+  - changeSet:
+      id: yaml-orders
+      author: fixture
+      changes:
+        - createTable:
+            schemaName: public
+            tableName: yaml_orders
+            columns:
+              - column:
+                  name: id
+                  type: bigint
+                  constraints:
+                    primaryKey: true
+              - column:
+                  name: amount
+                  type: numeric
+                  defaultValueNumeric: 600
+        - addDefaultValue:
+            schemaName: public
+            tableName: yaml_orders
+            columnName: amount
+            defaultValueNumeric: 700
+        - createView:
+            schemaName: public
+            viewName: yaml_summary
+            selectQuery: |
+              SELECT id, amount * 0.9 AS final_price
+              FROM public.yaml_orders
+              WHERE amount >= 500;
+        - sqlFile:
+            path: sql/extra.sql
+            relativeToChangelogFile: true
+  - include:
+      file: last.json
+      relativeToChangelogFile: true

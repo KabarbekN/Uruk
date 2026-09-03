@@ -1,0 +1,8 @@
+ARG KUBECTL_IMAGE
+ARG PLATFORM_IMAGE
+FROM ${KUBECTL_IMAGE} AS kubectl
+FROM ${PLATFORM_IMAGE}
+COPY --from=kubectl /bin/kubectl /usr/local/bin/kubectl
+ENV HOME=/tmp
+USER 65532:65532
+WORKDIR /app

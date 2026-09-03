@@ -1,0 +1,11 @@
+ALTER TABLE raw_fact ADD COLUMN contract_version TEXT GENERATED ALWAYS AS (payload->>'contractVersion') STORED;
+ALTER TABLE raw_fact ADD COLUMN subject_key TEXT GENERATED ALWAYS AS (payload->'subject'->>'stableKey') STORED;
+ALTER TABLE raw_fact ADD COLUMN properties JSONB GENERATED ALWAYS AS (payload->'properties') STORED;
+CREATE INDEX raw_fact_kind ON raw_fact(organization_id,project_id,analysis_run_id,kind);
+CREATE INDEX raw_fact_revision ON raw_fact(revision_id,stable_key);
+CREATE INDEX semantic_node_revision ON semantic_node(revision_id,stable_key);
+CREATE INDEX semantic_node_properties ON semantic_node USING gin(properties);
+CREATE INDEX semantic_node_label_trgm ON semantic_node USING gin(label gin_trgm_ops);
+CREATE INDEX semantic_node_key_trgm ON semantic_node USING gin(stable_key gin_trgm_ops);
+CREATE INDEX semantic_edge_kind ON semantic_edge(organization_id,project_id,analysis_run_id,kind);
+CREATE INDEX evidence_location ON evidence(revision_id,file_path,start_line);

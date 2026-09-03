@@ -1,0 +1,10 @@
+{
+  "name": "@semanticmap/analyzer-typescript-node",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "semantic-analyzer": "./semantic-analyzer.mjs" },
+  "scripts": { "test": "node --test tests/*.test.mjs" },
+  "dependencies": { "ajv": "8.17.1", "ignore": "7.0.5", "typescript": "5.8.3" },
+  "engines": { "node": ">=22" }
+}

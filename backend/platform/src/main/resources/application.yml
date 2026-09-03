@@ -1,0 +1,70 @@
+spring:
+  application:
+    name: semantic-business-map
+  profiles:
+    default: dev
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://127.0.0.1:55432/semanticmap}
+    username: ${DATABASE_USER:semanticmap}
+    password: ${DATABASE_PASSWORD:semanticmap-local}
+    hikari:
+      maximum-pool-size: 12
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 1MB
+      max-request-size: 1MB
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${PORT:8080}
+  error:
+    include-message: never
+  tomcat:
+    max-http-form-post-size: 1MB
+    max-swallow-size: 1MB
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+semantic:
+  worker:
+    enabled: ${WORKER_ENABLED:true}
+  artifact-root: ${ARTIFACT_ROOT:.runtime/artifacts}
+  repository-roots: ${REPOSITORY_ROOTS:.}
+  ai:
+    mode: DISABLED
+    base-url: ${AI_BASE_URL:http://127.0.0.1:11434}
+    model: ${AI_MODEL:}
+    api-key: ${AI_API_KEY:}
+---
+spring:
+  config:
+    activate:
+      on-profile: production
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER_URI}
+          audiences: ${OIDC_AUDIENCE:semanticmap}
+logging:
+  structured:
+    format:
+      console: ecs
+---
+spring:
+  config:
+    activate:
+      on-profile: worker
+  main:
+    web-application-type: none

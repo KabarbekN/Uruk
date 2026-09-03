@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.5.16</version><relativePath/></parent>
+  <groupId>io.semanticmap</groupId><artifactId>semantic-business-map</artifactId><version>0.1.0-SNAPSHOT</version><packaging>pom</packaging>
+  <modules><module>analyzer-contract</module><module>analyzers/java-spring</module><module>backend/platform</module></modules>
+  <properties><java.version>21</java.version><spring-modulith.version>1.4.13</spring-modulith.version><spring-ai.version>1.1.6</spring-ai.version><postgresql.version>42.7.12</postgresql.version><rewrite.version>8.87.7</rewrite.version><commons-lang3.version>3.20.0</commons-lang3.version><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties>
+  <dependencyManagement><dependencies>
+    <dependency><groupId>org.springframework.modulith</groupId><artifactId>spring-modulith-bom</artifactId><version>${spring-modulith.version}</version><type>pom</type><scope>import</scope></dependency>
+    <dependency><groupId>org.springframework.ai</groupId><artifactId>spring-ai-bom</artifactId><version>${spring-ai.version}</version><type>pom</type><scope>import</scope></dependency>
+  </dependencies></dependencyManagement>
+  <build><pluginManagement><plugins>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><configuration><release>21</release><parameters>true</parameters></configuration></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><configuration><useModulePath>false</useModulePath></configuration></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-shade-plugin</artifactId><version>3.6.0</version></plugin>
+    <plugin><groupId>com.diffplug.spotless</groupId><artifactId>spotless-maven-plugin</artifactId><version>2.44.3</version><configuration><lineEndings>UNIX</lineEndings><java><palantirJavaFormat><version>2.50.0</version></palantirJavaFormat></java></configuration></plugin>
+  </plugins></pluginManagement></build>
+</project>

@@ -65,10 +65,12 @@ public class SecurityConfiguration {
         return http.csrf(c -> c.disable())
                 .cors(Customizer.withDefaults())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(a -> a.requestMatchers("/actuator/health/**")
-                        .permitAll()
-                        .anyRequest()
-                        .authenticated())
+                .authorizeHttpRequests(
+                        a -> a.dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll()
+                                .requestMatchers("/actuator/health/**", "/api/v1/auth/oauth/**", "/api/v1/git/**")
+                                .permitAll()
+                                .anyRequest()
+                                .authenticated())
                 .addFilterBefore(new CorrelationFilter(), AnonymousAuthenticationFilter.class);
     }
 
@@ -87,6 +89,11 @@ public class SecurityConfiguration {
 
     static class DevIdentityFilter extends OncePerRequestFilter {
         @Override
+        protected boolean shouldNotFilterAsyncDispatch() {
+            return false;
+        }
+
+        @Override
         protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {
             var auth = new UsernamePasswordAuthenticationToken(
@@ -103,6 +110,11 @@ public class SecurityConfiguration {
     }
 
     static class CorrelationFilter extends OncePerRequestFilter {
+        @Override
+        protected boolean shouldNotFilterAsyncDispatch() {
+            return false;
+        }
+
         @Override
         protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
                 throws IOException, ServletException {

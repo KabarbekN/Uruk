@@ -11,6 +11,11 @@ import {
   projectionSchema,
   runSchema,
   settingsSchema,
+  hardwareProfileSchema,
+  testAccessSchema,
+  oauthStatusSchema,
+  resolvedRepositorySchema,
+  remoteRepositorySummarySchema,
 } from './schemas';
 import type {
   AnalysisInput,
@@ -202,6 +207,186 @@ export const api = {
     request('/settings', settingsSchema, { signal }),
   saveSettings: (body: SettingsInput) =>
     request('/settings', acknowledgement, json('PUT', body)),
+  testRepositoryAccess: (data: {
+    url: string;
+    token?: string;
+    personalAccessToken?: string;
+    credentialsReference?: string;
+  }) =>
+    request(
+      '/repositories/test-access',
+      testAccessSchema,
+      json('POST', {
+        url: data.url,
+        token: data.token ?? data.personalAccessToken,
+        credentialsReference: data.credentialsReference,
+      }),
+    ),
+  getSystemResources: (signal?: AbortSignal) =>
+    request('/system/resources', hardwareProfileSchema, { signal }),
+  selectAiModel: (data: {
+    model: string;
+    providerType: string;
+    apiKey?: string;
+    baseUrl?: string;
+  }) => request('/system/ai/select', acknowledgement, json('POST', data)),
+  getOAuthStatus: (signal?: AbortSignal) =>
+    request('/auth/oauth/status', oauthStatusSchema, { signal }),
+  configureOAuth: (data: {
+    provider: string;
+    clientId: string;
+    clientSecret: string;
+  }) => request('/auth/oauth/config', acknowledgement, json('POST', data)),
+  startGithubDeviceFlow: () =>
+    request(
+      '/auth/oauth/device/github/start',
+      z.object({
+        deviceCode: z.string(),
+        userCode: z.string(),
+        verificationUri: z.string(),
+        expiresIn: z.number(),
+        interval: z.number(),
+      }),
+      json('POST', {}),
+    ),
+  pollGithubDeviceFlow: (deviceCode: string) =>
+    request(
+      '/auth/oauth/device/github/poll',
+      z.object({
+        status: z.string(),
+        token: z.string().nullable().optional(),
+        username: z.string().nullable().optional(),
+        error: z.string().nullable().optional(),
+        interval: z.number().nullable().optional(),
+      }),
+      json('POST', { deviceCode }),
+    ),
+  resolveRepository: (data: { url: string; token?: string }) =>
+    request(
+      '/git/repositories/resolve',
+      resolvedRepositorySchema,
+      json('POST', data),
+    ),
+  fetchRemoteRepositories: (params: {
+    provider?: string;
+    token?: string;
+    page?: number;
+    perPage?: number;
+  }) =>
+    request(
+      `/git/repositories${queryString(params)}`,
+      z.array(remoteRepositorySummarySchema),
+    ),
+  getControllers: (runId: string, signal?: AbortSignal) =>
+    request(
+      `/analysis-runs/${encoded(runId)}/controllers`,
+      z.array(
+        z.object({
+          controllerKey: z.string(),
+          controllerName: z.string(),
+          packageName: z.string(),
+          filePath: z.string(),
+          endpointCount: z.number(),
+          endpoints: z.array(
+            z.object({
+              id: z.string(),
+              label: z.string(),
+              method: z.string().nullable().optional(),
+              path: z.string().nullable().optional(),
+              methodName: z.string().nullable().optional(),
+              hasAi: z.boolean().nullable().optional(),
+              aiTitle: z.string().nullable().optional(),
+              aiDescription: z.string().nullable().optional(),
+              aiResult: z
+                .object({
+                  title: z.string().nullable().optional(),
+                  businessPurpose: z.string().nullable().optional(),
+                  actors: z.array(z.string()).nullable().optional(),
+                  businessSteps: z.array(z.string()).nullable().optional(),
+                  businessRules: z.array(z.string()).nullable().optional(),
+                  errorScenarios: z.array(z.string()).nullable().optional(),
+                  category: z.string().nullable().optional(),
+                })
+                .passthrough()
+                .nullable()
+                .optional(),
+              scenarioId: z.string().nullable().optional(),
+              stepCount: z.number().int().nonnegative().nullable().optional(),
+              sideEffectCount: z.number().int().nonnegative().nullable().optional(),
+              unresolvedCount: z.number().int().nonnegative().nullable().optional(),
+              pathOrderKnown: z.boolean().nullable().optional(),
+              storyTruncated: z.boolean().nullable().optional(),
+              storyStatus: z
+                .enum(['DISCOVERED', 'STATIC_READY', 'ANALYZING', 'READY'])
+                .nullable()
+                .optional(),
+            }),
+          ),
+        }),
+      ),
+      { signal },
+    ),
+  enrichNode: (nodeId: string, signal?: AbortSignal) =>
+    request(
+      `/semantic/nodes/${encoded(nodeId)}/enrich`,
+      z.record(z.unknown()),
+      { ...json('POST', {}), signal },
+    ),
+  enrichAll: (runId: string, signal?: AbortSignal) =>
+    request(
+      `/analysis-runs/${encoded(runId)}/enrich-all`,
+      z.record(z.unknown()),
+      { ...json('POST', {}), signal },
+    ),
+  enrichController: (
+    runId: string,
+    controllerKey: string,
+    signal?: AbortSignal,
+  ) =>
+    request(
+      `/analysis-runs/${encoded(runId)}/controllers/${encodeURIComponent(controllerKey)}/enrich`,
+      z.record(z.unknown()),
+      { ...json('POST', {}), signal },
+    ),
+  cancelEnrichment: (runId: string, signal?: AbortSignal) =>
+    request(
+      `/analysis-runs/${encoded(runId)}/cancel-enrichment`,
+      z.record(z.unknown()),
+      { ...json('POST', {}), signal },
+    ),
+  enrichPipeline: (runId: string, endpointId: string, signal?: AbortSignal) =>
+    request(
+      `/analysis-runs/${encoded(runId)}/scenarios/${encoded(endpointId)}/enrich-pipeline`,
+      z.record(z.unknown()),
+      { ...json('POST', {}), signal },
+    ),
+  getEnrichmentProgress: (runId: string, signal?: AbortSignal) =>
+    request(
+      `/analysis-runs/${encoded(runId)}/enrichment-progress`,
+      z.object({
+        total: z.number(),
+        ready: z.number(),
+        processing: z.number(),
+        failed: z.number(),
+        percentage: z.number(),
+        activeModel: z.string().optional(),
+      }),
+      { signal },
+    ),
+  semanticSearch: (runId: string, query: string, signal?: AbortSignal) =>
+    request(
+      `/analysis-runs/${encoded(runId)}/semantic-search`,
+      z.array(
+        z.object({
+          endpointId: z.string(),
+          score: z.number(),
+          reason: z.string(),
+          allReasons: z.array(z.string()).optional(),
+          endpoint: z.record(z.unknown()),
+        }),
+      ),
+      { ...json('POST', { query }), signal },
+    ),
 };
 
 export type InspectionResource =

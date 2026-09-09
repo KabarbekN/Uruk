@@ -384,10 +384,121 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analysis-runs/{analysisRunId}/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysisRunId: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getRuntimeEvidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/analysis-runs/{analysisRunId}/runtime/traces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysisRunId: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Developer-only import into a completed analysis. Accepts uncompressed OTLP JSON up to 1 MiB and 500 spans; duplicate IDs are idempotent only with identical immutable data. */
+        post: operations["ingestRuntimeTraces"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        RuntimeSpan: {
+            /** Format: uuid */
+            id: string;
+            traceId: string;
+            spanId: string;
+            parentSpanId: string | null;
+            name: string;
+            kind: number;
+            /** @description Unsigned Unix nanoseconds; preserve as a string */
+            startNanos: string;
+            endNanos: string;
+            attributes: {
+                [key: string]: unknown;
+            };
+            resourceAttributes: {
+                [key: string]: unknown;
+            };
+            scope: {
+                [key: string]: unknown;
+            };
+            status: {
+                [key: string]: unknown;
+            };
+            events: {
+                [key: string]: unknown;
+            }[];
+            links: {
+                [key: string]: unknown;
+            }[];
+            /** Format: uuid */
+            matchedNodeId: string | null;
+            /** @enum {string} */
+            matchStatus: "MATCHED_STABLE_KEY" | "MATCHED_SYMBOL" | "UNRESOLVED" | "AMBIGUOUS";
+            createdAt: string;
+        };
+        RuntimeSnapshot: {
+            /** Format: uuid */
+            analysisRunId: string;
+            spans: components["schemas"]["RuntimeSpan"][];
+            summary: {
+                totalSpans: number;
+                traceCount: number;
+                matchedSpans: number;
+                unresolvedSpans: number;
+                observedNodes: number;
+                notObservedNodes: number;
+                /** @enum {string} */
+                coverageScope: "UPLOADED_SPANS_ONLY";
+                /** @enum {boolean} */
+                wholeApplicationCoverageKnown: false;
+                /** @enum {string} */
+                notObservedMeaning: "NOT_OBSERVED_IN_UPLOADED_TRACES";
+            };
+            observedPaths: {
+                /** Format: uuid */
+                sourceNodeId: string;
+                /** Format: uuid */
+                targetNodeId: string;
+            }[];
+            pathsTruncated: boolean;
+            offset: number;
+            limit: number;
+            hasMore: boolean;
+        };
+        RuntimeIngestion: {
+            /** @enum {string} */
+            status: "INGESTED";
+            acceptedSpans: number;
+            duplicateSpans: number;
+            matchedSpans: number;
+            unresolvedSpans: number;
+            /** @enum {string} */
+            coverageScope: "UPLOADED_SPANS_ONLY";
+        };
         ProjectInput: {
             name: string;
             description: string;
@@ -466,6 +577,8 @@ export interface components {
             totalNodes: number;
         };
         CanvasLayout: {
+            /** @description Pinned node stable keys; must be a subset of positions. Omitted on write means no pinned nodes. */
+            pinnedStableKeys?: string[];
             positions: {
                 [key: string]: {
                     x: number;
@@ -1168,6 +1281,105 @@ export interface operations {
             };
             /** @description Settings saved */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getRuntimeEvidence: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                analysisRunId: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated uploaded spans and bounded observed paths; not whole-application coverage */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeSnapshot"];
+                };
+            };
+        };
+    };
+    ingestRuntimeTraces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysisRunId: components["parameters"]["RunId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    resourceSpans: {
+                        [key: string]: unknown;
+                    }[];
+                } & {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Imported observations; static facts are unchanged */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeIngestion"];
+                };
+            };
+            /** @description Invalid OTLP JSON */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Developer access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Analysis not complete or immutable span conflicts */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Body or span count exceeds the import limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Compressed payloads are not supported */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Per-analysis span quota exceeded */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

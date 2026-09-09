@@ -21,6 +21,8 @@ final class AnalysisModel {
     final Map<String, String> repositoryEntities = new HashMap<>();
     final Map<String, Protocol.Fact> facts = new TreeMap<>();
     final List<Protocol.Diagnostic> diagnostics = new ArrayList<>();
+    final Set<String> truncatedRelations = new HashSet<>();
+    boolean partialCoverage;
     int discovered;
     int failed;
 
@@ -77,6 +79,17 @@ final class AnalysisModel {
         Protocol.Fact previous = facts.get(key);
         if (previous != null) {
             if (!previous.evidence().contains(evidence)) {
+                if (previous.evidence().size() >= 32) {
+                    partialCoverage = true;
+                    if (truncatedRelations.add(key))
+                        diagnostic(
+                                "RELATION_EVIDENCE_LIMIT",
+                                "Relation retains the first 32 distinct evidence locations",
+                                unit,
+                                node,
+                                Map.of("stableKey", key));
+                    return;
+                }
                 List<Protocol.Evidence> locations = new ArrayList<>(previous.evidence());
                 locations.add(evidence);
                 facts.put(

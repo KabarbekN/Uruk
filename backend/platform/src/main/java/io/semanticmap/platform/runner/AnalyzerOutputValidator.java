@@ -87,6 +87,7 @@ public class AnalyzerOutputValidator {
                         Map.of("capability", capability)));
             }
         }
+        boolean hasErrorOrFatal = false;
         try (var reader = Files.newBufferedReader(output.resolve("diagnostics.ndjson"))) {
             int count = 0;
             StringBuilder line = new StringBuilder();
@@ -98,14 +99,33 @@ public class AnalyzerOutputValidator {
                     continue;
                 }
                 if (!line.isEmpty()) {
-                    diagnostics.add(diagnostic(line.toString()));
-                    if (++count > 2000) throw new IOException("DIAGNOSTIC_COUNT_LIMIT");
+                    Map<String, Object> diag = diagnostic(line.toString());
+                    String severity = String.valueOf(diag.get("severity"));
+                    if ("ERROR".equals(severity) || "FATAL".equals(severity)) {
+                        hasErrorOrFatal = true;
+                    }
+                    if (diagnostics.size() < 2000) {
+                        diagnostics.add(diag);
+                    }
+                    count++;
                 }
                 line.setLength(0);
             }
-            if (!line.isEmpty()) diagnostics.add(diagnostic(line.toString()));
+            if (!line.isEmpty()) {
+                Map<String, Object> diag = diagnostic(line.toString());
+                String severity = String.valueOf(diag.get("severity"));
+                if ("ERROR".equals(severity) || "FATAL".equals(severity)) {
+                    hasErrorOrFatal = true;
+                }
+                if (diagnostics.size() < 2000) {
+                    diagnostics.add(diag);
+                }
+                count++;
+            }
         }
-        if (diagnostics.stream().anyMatch(d -> Set.of("ERROR", "FATAL").contains(d.get("severity")))) partial = true;
+        if (hasErrorOrFatal
+                || diagnostics.stream().anyMatch(d -> Set.of("ERROR", "FATAL").contains(d.get("severity"))))
+            partial = true;
         return new AnalyzerExecutionPort.Result(
                 partial ? "PARTIALLY_SUCCEEDED" : "SUCCEEDED",
                 digest,

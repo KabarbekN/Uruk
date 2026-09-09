@@ -5,6 +5,7 @@ import type { CanvasLayout, SemanticNode } from '../../src/shared/api/types';
 // Keep this bound independent of the client constant so a client regression fails.
 const coordinate = z.number().finite().min(-1e7).max(1e7);
 const layoutSchema = z.object({
+  pinnedStableKeys: z.array(z.string().max(2048)).max(2000).default([]),
   positions: z
     .record(z.string().max(2048), z.object({ x: coordinate, y: coordinate }))
     .refine((positions) => Object.keys(positions).length <= 2000),
@@ -32,6 +33,9 @@ export function createLayoutServer(
           .slice(0, 2000),
       ),
       viewport: saved.viewport,
+      pinnedStableKeys: (saved.pinnedStableKeys ?? []).filter((key) =>
+        members.has(key),
+      ),
     });
   return {
     get,
@@ -43,7 +47,13 @@ export function createLayoutServer(
         ? 'Invalid layout or more than 2000 positions'
         : Object.keys(parsed.data.positions).some((key) => !members.has(key))
           ? 'Layout contains a node outside this analysis'
-          : null;
+          : parsed.data.pinnedStableKeys.some(
+                (key) => !(key in parsed.data.positions),
+              ) ||
+              new Set(parsed.data.pinnedStableKeys).size !==
+                parsed.data.pinnedStableKeys.length
+            ? 'Pinned keys must be unique members of the saved positions'
+            : null;
       if (detail || !parsed.success) {
         rejected.push(detail!);
         return { status: 400, json: { detail: detail! } };

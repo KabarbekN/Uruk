@@ -1,0 +1,59 @@
+.runtime-import {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 24px 0;
+}
+.runtime-import input {
+  max-width: 100%;
+  min-width: 0;
+}
+.runtime-import p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.runtime-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+.runtime-summary dt {
+  font-size: 13px;
+}
+.runtime-summary dd {
+  font-size: 26px;
+  margin: 4px 0;
+  font-weight: 600;
+}
+.runtime-table {
+  min-width: 720px;
+}
+.runtime-table td {
+  vertical-align: top;
+}
+.runtime-table details {
+  max-width: 420px;
+  margin-top: 8px;
+}
+.runtime-table summary {
+  cursor: pointer;
+}
+.runtime-pagination,
+.runtime-paths li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.runtime-pagination {
+  justify-content: flex-end;
+  margin: 16px 0;
+}
+.runtime-paths {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}

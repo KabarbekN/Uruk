@@ -20,7 +20,12 @@ DESCRIPTOR = {"id": "postgresql", "version": "0.1.0", "contractVersion": "1.0",
 
 
 def render(node):
-    return RawStream()(node) if node is not None else None
+    if node is None:
+        return None
+    try:
+        return RawStream()(node)
+    except Exception:
+        return str(node)
 
 
 def names(nodes):
@@ -104,10 +109,11 @@ class Extractor:
         self.edge(owner, key, "OWNED_BY", evidence)
 
     def column(self, node, table, evidence):
-        key = table.replace("db:table:", "db:column:", 1) + "." + node.colname
-        self.emit("COLUMN", key, node.colname, table, evidence, dataType=render(node.typeName),
-                  nullable=not any(c.contype.name in {"CONSTR_NOTNULL", "CONSTR_PRIMARY"} for c in node.constraints or ()))
-        for constraint in node.constraints or ():
+        colname = getattr(node, "colname", None) or "anonymous"
+        key = table.replace("db:table:", "db:column:", 1) + "." + colname
+        self.emit("COLUMN", key, colname, table, evidence, dataType=render(getattr(node, "typeName", None)),
+                  nullable=not any(c.contype.name in {"CONSTR_NOTNULL", "CONSTR_PRIMARY"} for c in getattr(node, "constraints", None) or ()))
+        for constraint in getattr(node, "constraints", None) or ():
             self.constraint(constraint, table, key, evidence)
 
     def query(self, node, owner, evidence):

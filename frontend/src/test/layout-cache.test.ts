@@ -91,6 +91,7 @@ describe('bounded full-replacement layout persistence', () => {
       expect(layout.positions).toMatchObject(pinnedPositions);
       expect(server.put(layout).status).toBe(200);
       expect(server.get().positions).toEqual(layout.positions);
+      expect(server.get().pinnedStableKeys).toEqual(pins);
       projection.nodes.forEach((node) => seen.add(node.id));
     }
     expect(seen.size).toBe(10000);

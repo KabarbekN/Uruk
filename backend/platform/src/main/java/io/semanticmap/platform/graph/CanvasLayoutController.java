@@ -7,8 +7,11 @@ import io.semanticmap.platform.shared.TenantContext;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,7 +31,14 @@ public class CanvasLayoutController {
 
     public record Viewport(double x, double y, double zoom) {}
 
-    public record Layout(@NotNull @Size(max = 2000) Map<String, Position> positions, @NotNull Viewport viewport) {}
+    public record Layout(
+            @NotNull @Size(max = 2000) Map<String, Position> positions,
+            @NotNull Viewport viewport,
+            @Size(max = 2000) Set<@NotNull @Size(max = 2048) String> pinnedStableKeys) {
+        public Layout(Map<String, Position> positions, Viewport viewport) {
+            this(positions, viewport, Set.of());
+        }
+    }
 
     private final Db db;
     private final TenantContext tenant;
@@ -57,7 +67,7 @@ public class CanvasLayoutController {
                 view.name());
         Object layoutRun = !currentState.isEmpty() || baseline == null ? id : baseline;
         var positions = db.rows(
-                "SELECT l.semantic_node_stable_key,l.x,l.y FROM canvas_layout l JOIN semantic_node n ON n.organization_id=l.organization_id AND n.project_id=l.project_id AND n.stable_key=l.semantic_node_stable_key AND n.analysis_run_id=? WHERE l.organization_id=? AND l.project_id=? AND l.analysis_run_id=? AND l.user_id=? AND l.view_type=? ORDER BY l.semantic_node_stable_key LIMIT 2000",
+                "SELECT l.semantic_node_stable_key,l.x,l.y,l.pinned FROM canvas_layout l JOIN semantic_node n ON n.organization_id=l.organization_id AND n.project_id=l.project_id AND n.stable_key=l.semantic_node_stable_key AND n.analysis_run_id=? WHERE l.organization_id=? AND l.project_id=? AND l.analysis_run_id=? AND l.user_id=? AND l.view_type=? ORDER BY l.semantic_node_stable_key LIMIT 2000",
                 id,
                 org,
                 project,
@@ -74,11 +84,17 @@ public class CanvasLayoutController {
                         view.name())
                 : currentState;
         var result = new LinkedHashMap<String, Object>();
-        for (var row : positions)
+        var pinned = new ArrayList<String>();
+        for (var row : positions) {
             result.put(row.get("semanticNodeStableKey").toString(), Map.of("x", row.get("x"), "y", row.get("y")));
+            if (Boolean.TRUE.equals(row.get("pinned")))
+                pinned.add(row.get("semanticNodeStableKey").toString());
+        }
         return Map.of(
                 "positions",
                 result,
+                "pinnedStableKeys",
+                pinned,
                 "viewport",
                 state.isEmpty()
                         ? Map.of("x", 0, "y", 0, "zoom", 1)
@@ -95,23 +111,38 @@ public class CanvasLayoutController {
         access.project(Semantics.uuid(run.get("projectId")));
         UUID org = tenant.orgId(), user = tenant.userId();
         Object project = run.get("projectId");
+        if (layout == null
+                || layout.positions() == null
+                || layout.viewport() == null
+                || layout.positions().size() > 2000) throw bad("Invalid layout");
+        Set<String> pinned = layout.pinnedStableKeys() == null ? Set.of() : layout.pinnedStableKeys();
+        if (pinned.size() > 2000 || !layout.positions().keySet().containsAll(pinned))
+            throw bad("Pinned nodes must have saved positions");
         validate(layout.viewport().x(), layout.viewport().y());
         if (!Double.isFinite(layout.viewport().zoom())
                 || layout.viewport().zoom() < .01
                 || layout.viewport().zoom() > 10) throw bad("Invalid viewport zoom");
         for (var item : layout.positions().entrySet()) {
-            if (item.getValue() == null || item.getKey().length() > 2048) throw bad("Invalid position");
+            if (item.getValue() == null
+                    || item.getKey() == null
+                    || item.getKey().isBlank()
+                    || item.getKey().length() > 2048) throw bad("Invalid position");
             validate(item.getValue().x(), item.getValue().y());
         }
-        long found = ((Number) db.one(
-                                "SELECT count(*) AS total FROM semantic_node WHERE organization_id=? AND project_id=? AND analysis_run_id=? AND stable_key IN (SELECT jsonb_array_elements_text(?::jsonb))",
-                                org,
-                                project,
-                                id,
-                                db.json(layout.positions().keySet()))
-                        .get("total"))
-                .longValue();
-        if (found != layout.positions().size()) throw bad("Layout contains a node outside this analysis");
+        var validKeyRows = db.rows(
+                "SELECT stable_key FROM semantic_node WHERE organization_id=? AND project_id=? AND analysis_run_id=? AND stable_key IN (SELECT jsonb_array_elements_text(?::jsonb))",
+                org,
+                project,
+                id,
+                db.json(layout.positions().keySet()));
+        Set<String> validKeys = new HashSet<>();
+        for (var r : validKeyRows) {
+            Object k = r.get("stableKey");
+            if (k == null) k = r.get("stable_key");
+            if (k != null) {
+                validKeys.add(k.toString());
+            }
+        }
         db.one(
                 "SELECT id FROM analysis_run WHERE organization_id=? AND project_id=? AND id=? FOR UPDATE",
                 org,
@@ -124,9 +155,10 @@ public class CanvasLayoutController {
                 id,
                 user,
                 view.name());
-        for (var item : layout.positions().entrySet())
+        for (var item : layout.positions().entrySet()) {
+            if (!validKeys.contains(item.getKey())) continue;
             db.update(
-                    "INSERT INTO canvas_layout(organization_id,project_id,analysis_run_id,user_id,view_type,semantic_node_stable_key,x,y) VALUES (?,?,?,?,?,?,?,?)",
+                    "INSERT INTO canvas_layout(organization_id,project_id,analysis_run_id,user_id,view_type,semantic_node_stable_key,x,y,pinned) VALUES (?,?,?,?,?,?,?,?,?)",
                     org,
                     project,
                     id,
@@ -134,7 +166,9 @@ public class CanvasLayoutController {
                     view.name(),
                     item.getKey(),
                     item.getValue().x(),
-                    item.getValue().y());
+                    item.getValue().y(),
+                    pinned.contains(item.getKey()));
+        }
         db.update(
                 "INSERT INTO canvas_view_state(organization_id,project_id,analysis_run_id,user_id,view_type,viewport) VALUES (?,?,?,?,?,?::jsonb) ON CONFLICT (organization_id,project_id,analysis_run_id,user_id,view_type) DO UPDATE SET viewport=excluded.viewport,updated_at=now()",
                 org,

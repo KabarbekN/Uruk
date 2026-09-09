@@ -121,7 +121,21 @@ class ResolutionTaskHandler implements TaskHandler {
                     Map.of(),
                     ingestions,
                     true);
-            UUID end = graph;
+            UUID afterGraph = graph;
+            var orgPolicy = db.one("SELECT ai_mode FROM organization WHERE id=?", task.organizationId());
+            String aiMode = (String) orgPolicy.get("aiMode");
+            if (aiMode != null && !aiMode.equals("DISABLED")) {
+                afterGraph = queue.enqueue(
+                        task.organizationId(),
+                        task.projectId(),
+                        task.runId(),
+                        "ENRICH_BUSINESS_MAP",
+                        "enrich",
+                        Map.of(),
+                        List.of(graph),
+                        false);
+            }
+            UUID end = afterGraph;
             if (run.get("baselineRunId") != null)
                 end = queue.enqueue(
                         task.organizationId(),
@@ -130,7 +144,7 @@ class ResolutionTaskHandler implements TaskHandler {
                         "BUILD_SEMANTIC_DIFF",
                         "diff",
                         Map.of(),
-                        List.of(graph),
+                        List.of(afterGraph),
                         false);
             queue.enqueue(
                     task.organizationId(),

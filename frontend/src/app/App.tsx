@@ -14,6 +14,7 @@ import {
   Routes,
   useLocation,
   useMatch,
+  useParams,
 } from 'react-router-dom';
 import {
   Activity,
@@ -24,6 +25,8 @@ import {
   LayoutDashboard,
   Menu,
   Network,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings2,
   Terminal,
   X,
@@ -35,10 +38,11 @@ import { Notifications } from '../shared/ui/notifications';
 
 const ProjectsPage = lazy(() => import('../pages/ProjectsPage'));
 const ProjectPage = lazy(() => import('../pages/ProjectPage'));
-const CanvasPage = lazy(() => import('../pages/CanvasPage'));
+const OverlayCanvasPage = lazy(() => import('../pages/OverlayCanvasPage'));
 const ReviewPage = lazy(() => import('../pages/ReviewPage'));
 const DiffPage = lazy(() => import('../pages/DiffPage'));
 const DebugPage = lazy(() => import('../pages/DebugPage'));
+const RuntimePage = lazy(() => import('../pages/RuntimePage'));
 const SettingsPage = lazy(() => import('../pages/SettingsPage'));
 
 function ErrorFallback() {
@@ -70,6 +74,11 @@ function MissingPage() {
   );
 }
 
+function RedirectToCanvas() {
+  const { analysisRunId = '' } = useParams();
+  return <Navigate to={`/analyses/${analysisRunId}/canvas`} replace />;
+}
+
 export default function App() {
   const { t, locale } = useT();
   const location = useLocation();
@@ -85,12 +94,35 @@ export default function App() {
   )[0];
   const runId = runMatch?.params.analysisRunId || latestRun?.id;
   const [menuOpen, setMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('sidebar-collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
   useEffect(() => setMenuOpen(false), [location.pathname]);
   useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('sidebar-collapsed', String(sidebarCollapsed));
+    } catch {
+      // ignore
+    }
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    const handleToggle = () => setSidebarCollapsed((prev) => !prev);
+    window.addEventListener('toggle-app-sidebar', handleToggle);
+    return () => window.removeEventListener('toggle-app-sidebar', handleToggle);
+  }, []);
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <a className="skip-link" href="#main-content">
         {t('skip')}
       </a>
@@ -102,16 +134,34 @@ export default function App() {
         />
       )}
       <aside className={`sidebar ${menuOpen ? 'open' : ''}`}>
-        <Link to="/projects" className="brand">
-          <span className="brand-mark">
-            <Network size={23} />
-          </span>
-          <span>
-            Semantic
-            <br />
-            <strong>Business Map</strong>
-          </span>
-        </Link>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '16px',
+          }}
+        >
+          <Link to="/projects" className="brand" style={{ margin: 0, padding: '0 4px' }}>
+            <span className="brand-mark">
+              <Network size={23} />
+            </span>
+            <span>
+              Semantic
+              <br />
+              <strong>Business Map</strong>
+            </span>
+          </Link>
+          <button
+            type="button"
+            className="sidebar-collapse-btn desktop-sidebar-toggle"
+            title={locale === 'ru' ? 'Свернуть боковую панель' : 'Collapse sidebar'}
+            onClick={() => setSidebarCollapsed(true)}
+            aria-label={locale === 'ru' ? 'Свернуть панель' : 'Collapse sidebar'}
+          >
+            <PanelLeftClose size={18} />
+          </button>
+        </div>
         <div className="workspace-label">
           <span className="workspace-initial">S</span>
           <span>{t('workspace')}</span>
@@ -155,6 +205,10 @@ export default function App() {
                 <Terminal size={17} />
                 {t('debug')}
               </NavLink>
+              <NavLink to={`/analyses/${runId}/runtime`}>
+                <Activity size={17} />
+                {t('runtime')}
+              </NavLink>
             </>
           )}
         </nav>
@@ -180,6 +234,18 @@ export default function App() {
                 onClick={() => setMenuOpen(!menuOpen)}
               />
             </span>
+            {sidebarCollapsed && (
+              <button
+                type="button"
+                className="sidebar-collapse-btn desktop-sidebar-toggle"
+                title={locale === 'ru' ? 'Развернуть боковую панель' : 'Expand sidebar'}
+                onClick={() => setSidebarCollapsed(false)}
+                style={{ marginRight: 6 }}
+                aria-label={locale === 'ru' ? 'Развернуть панель' : 'Expand sidebar'}
+              >
+                <PanelLeftOpen size={18} />
+              </button>
+            )}
             <Link to="/projects">{t('workspace')}</Link>
             <ChevronRight size={13} />
             <span>
@@ -218,7 +284,11 @@ export default function App() {
                 />
                 <Route
                   path="/analyses/:analysisRunId/canvas"
-                  element={<CanvasPage />}
+                  element={<OverlayCanvasPage />}
+                />
+                <Route
+                  path="/analyses/:analysisRunId/canvas-overlay"
+                  element={<RedirectToCanvas />}
                 />
                 <Route
                   path="/analyses/:analysisRunId/diff"
@@ -227,6 +297,10 @@ export default function App() {
                 <Route
                   path="/analyses/:analysisRunId/debug"
                   element={<DebugPage />}
+                />
+                <Route
+                  path="/analyses/:analysisRunId/runtime"
+                  element={<RuntimePage />}
                 />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="*" element={<MissingPage />} />

@@ -18,6 +18,27 @@ import {
   Status,
 } from '../shared/ui';
 
+function sourceKey(snapshot: unknown, fallback: string): string | null {
+  if (snapshot === null || snapshot === undefined) return null;
+  if (typeof snapshot !== 'object' || Array.isArray(snapshot)) return fallback;
+  const value = snapshot as Record<string, unknown>;
+  const stableKey =
+    typeof value.stableKey === 'string' && value.stableKey
+      ? value.stableKey
+      : fallback;
+  const properties = value.properties;
+  if (
+    stableKey.startsWith('edge:') &&
+    typeof properties === 'object' &&
+    properties !== null &&
+    !Array.isArray(properties)
+  ) {
+    const source = (properties as Record<string, unknown>).sourceKey;
+    if (typeof source === 'string' && source) return source;
+  }
+  return stableKey;
+}
+
 function ChangeDetails({
   change,
   from,
@@ -45,61 +66,83 @@ function ChangeDetails({
             run: to,
           },
         ] as const
-      ).map((side) => (
-        <section key={side.key} className={`diff-side ${side.key}`}>
-          <header>
-            <h3>{t(side.key)}</h3>
-            <Link
-              className="text-link"
-              to={`/analyses/${side.run}/canvas?search=${encodeURIComponent(change.subjectStableKey)}`}
-            >
-              {t(side.key === 'before' ? 'openBefore' : 'openAfter')}
-              <ArrowRight size={13} />
-            </Link>
-          </header>
-          <JsonView value={side.value} label={t(side.key)} />
-          <h4>{t('evidenceReferences')}</h4>
-          {side.ids.length ? (
-            <ul className="reference-list">
-              {side.ids.map((id) => (
-                <li className="mono" key={id}>
-                  {id}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <span className="muted">{t('noEvidence')}</span>
-          )}
-        </section>
-      ))}
+      ).map((side) => {
+        const searchKey = sourceKey(side.value, change.subjectStableKey);
+        return (
+          <section key={side.key} className={`diff-side ${side.key}`}>
+            <header>
+              <h3>{t(side.key)}</h3>
+              {searchKey && (
+                <Link
+                  className="text-link"
+                  to={`/analyses/${side.run}/canvas?search=${encodeURIComponent(searchKey)}`}
+                >
+                  {t(side.key === 'before' ? 'openBefore' : 'openAfter')}
+                  <ArrowRight size={13} />
+                </Link>
+              )}
+            </header>
+            <JsonView value={side.value} label={t(side.key)} />
+            <h4>{t('evidenceReferences')}</h4>
+            {side.ids.length ? (
+              <ul className="reference-list">
+                {side.ids.map((id) => (
+                  <li className="mono" key={id}>
+                    {id}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <span className="muted">{t('noEvidence')}</span>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }
 
 export default function DiffPage() {
   const { analysisRunId = '' } = useParams();
+  return <RunDiff key={analysisRunId} analysisRunId={analysisRunId} />;
+}
+
+function RunDiff({ analysisRunId }: { analysisRunId: string }) {
   const { t, date, label } = useT();
   const run = useRun(analysisRunId);
   const runs = useRuns(run.data?.projectId);
   const [fromChoice, setFrom] = useState<string | null>(null);
   const [toChoice, setTo] = useState('');
   const [search, setSearch] = useState('');
+  const completedRuns = (runs.data ?? []).filter(
+    (item) =>
+      item.status === 'SUCCEEDED' || item.status === 'PARTIALLY_SUCCEEDED',
+  );
   const to = toChoice || analysisRunId;
-  const target = runs.data?.find((item) => item.id === to) ??
+  const target =
+    runs.data?.find((item) => item.id === to) ??
     (run.data?.id === to ? run.data : undefined);
   const from =
     fromChoice ??
-    ([...(runs.data ?? [])]
-      .filter((item) =>
-        target && item.id !== to &&
-        (item.status === 'SUCCEEDED' || item.status === 'PARTIALLY_SUCCEEDED') &&
-        Date.parse(item.createdAt) < Date.parse(target.createdAt))
-      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]?.id ||
+    ([...completedRuns]
+      .filter(
+        (item) =>
+          target &&
+          item.id !== to &&
+          Date.parse(item.createdAt) < Date.parse(target.createdAt),
+      )
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]
+      ?.id ||
       '');
   const query = useQuery({
     queryKey: ['diff', run.data?.projectId, from, to],
     queryFn: ({ signal }) => api.diff(run.data!.projectId, from, to, signal),
-    enabled: Boolean(run.data && from && to && from !== to),
+    enabled: Boolean(
+      run.data &&
+      from !== to &&
+      completedRuns.some((item) => item.id === from) &&
+      completedRuns.some((item) => item.id === to),
+    ),
   });
   const changes =
     query.data?.filter((change) =>
@@ -123,7 +166,7 @@ export default function DiffPage() {
             onChange={(event) => setFrom(event.target.value)}
           >
             <option value="">{t('noBaseline')}</option>
-            {runs.data.map((item) => (
+            {completedRuns.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.revision?.slice(0, 12) || item.id.slice(0, 8)} /{' '}
                 {date(item.createdAt)}
@@ -134,7 +177,12 @@ export default function DiffPage() {
         <ArrowRight size={18} />
         <Field label={t('toRun')}>
           <select value={to} onChange={(event) => setTo(event.target.value)}>
-            {runs.data.map((item) => (
+            {!completedRuns.some((item) => item.id === to) && (
+              <option value={to} disabled>
+                {t('chooseRuns')}
+              </option>
+            )}
+            {completedRuns.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.revision?.slice(0, 12) || item.id.slice(0, 8)} /{' '}
                 {date(item.createdAt)}
@@ -143,9 +191,11 @@ export default function DiffPage() {
           </select>
         </Field>
       </div>
-      {runs.data.length < 2 ? (
+      {completedRuns.length < 2 ? (
         <EmptyState icon={GitCompareArrows} title={t('twoRuns')} />
-      ) : !from || from === to ? (
+      ) : !from ||
+        from === to ||
+        !completedRuns.some((item) => item.id === to) ? (
         <EmptyState icon={GitCompareArrows} title={t('chooseRuns')} />
       ) : query.isPending ? (
         <Loading />

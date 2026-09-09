@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -140,11 +141,19 @@ export function IconButton({
 export function Badge({
   children,
   tone = 'neutral',
+  className = '',
+  style,
 }: {
   children: ReactNode;
   tone?: 'neutral' | 'positive' | 'warning' | 'negative' | 'info';
+  className?: string;
+  style?: CSSProperties;
 }) {
-  return <span className={`badge ${tone}`}>{children}</span>;
+  return (
+    <span className={`badge ${tone} ${className}`} style={style}>
+      {children}
+    </span>
+  );
 }
 
 export function Status({ value }: { value: string }) {
@@ -294,10 +303,14 @@ export function Modal({
   title,
   onClose,
   children,
+  className = '',
+  width,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  className?: string;
+  width?: string | number;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -309,7 +322,16 @@ export function Modal({
   }, []);
   return (
     <dialog
-      className="modal"
+      className={`modal ${className}`}
+      style={{
+        background: 'var(--surface, #ffffff)',
+        ...(width
+          ? {
+              width: typeof width === 'number' ? `${width}px` : width,
+              maxWidth: 'calc(100vw - 32px)',
+            }
+          : {}),
+      }}
       ref={ref}
       aria-labelledby={id}
       onCancel={(event) => {

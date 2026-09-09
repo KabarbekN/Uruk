@@ -8,6 +8,7 @@ import {
   Map,
   Pencil,
   Play,
+  Sparkles,
   Trash2,
 } from 'lucide-react';
 import { Link, useLocation, useParams } from 'react-router-dom';
@@ -77,14 +78,16 @@ export function RunsTable({ runs }: { runs: AnalysisRun[] }) {
                 </td>
                 <td className="muted nowrap">{date(run.createdAt)}</td>
                 <td className="right">
-                  <Link
-                    className="text-link nowrap"
-                    to={`/analyses/${run.id}/canvas`}
-                  >
-                    <Map size={14} />
-                    {t('openMap')}
-                    <ArrowUpRight size={14} />
-                  </Link>
+                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                    <Link
+                      className="text-link nowrap"
+                      to={`/analyses/${run.id}/canvas`}
+                      style={{ color: 'var(--primary, #0e7466)', fontWeight: 600 }}
+                    >
+                      <Map size={14} />
+                      {t('openMap')}
+                    </Link>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -132,6 +135,10 @@ export default function ProjectPage() {
           <GitBranch size={15} />
           {t('addRepository')}
         </Button>
+        <Link className="button secondary" to="/settings">
+          <Sparkles size={15} />
+          {t('selectAiModel')}
+        </Link>
         <Button variant="primary" onClick={() => setModal('analysis')}>
           <Play size={15} />
           {t('runAnalysis')}
@@ -189,6 +196,34 @@ export default function ProjectPage() {
               </span>
             </div>
           </div>
+          {sortedRuns[0] && (
+            <section className="latest-findings-card">
+              <div className="latest-findings-icon">
+                <Map size={22} />
+              </div>
+              <div>
+                <span className="eyebrow">{t('latestFindings')}</span>
+                <h2>
+                  {sortedRuns[0].revision?.slice(0, 12) ||
+                    sortedRuns[0].id.slice(0, 8)}
+                </h2>
+                <p>{t('latestFindingsHint')}</p>
+                <div className="badge-row">
+                  <Status value={sortedRuns[0].status} />
+                  <Badge>
+                    {date(sortedRuns[0].finishedAt || sortedRuns[0].createdAt)}
+                  </Badge>
+                </div>
+              </div>
+              <Link
+                className="button primary"
+                to={`/analyses/${sortedRuns[0].id}/canvas`}
+              >
+                {t('openFindings')}
+                <ArrowUpRight size={15} />
+              </Link>
+            </section>
+          )}
         </>
       )}
       <div className="section-toolbar">

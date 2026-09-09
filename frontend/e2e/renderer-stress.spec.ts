@@ -90,7 +90,9 @@ test('@scale isolated renderer stress with 2000 visible desktop nodes, not a ser
     await expect
       .poll(async () => (await rendererGeometry(page)).fullyVisible)
       .toBe(2000);
-    await expect(page.locator('.react-flow__edge')).toHaveCount(graph.edges.length);
+    await expect(page.locator('.react-flow__edge')).toHaveCount(
+      graph.edges.length,
+    );
     readyMs = Date.now() - started;
     const initial = await rendererGeometry(page);
     expect(initial.rendered).toBe(2000);
@@ -123,7 +125,9 @@ test('@scale isolated renderer stress with 2000 visible desktop nodes, not a ser
     });
     const afterPan = await rendererGeometry(page);
     expect(afterPan.fullyVisible).toBe(2000);
-    await expect(page.locator('.react-flow__edge')).toHaveCount(graph.edges.length);
+    await expect(page.locator('.react-flow__edge')).toHaveCount(
+      graph.edges.length,
+    );
     geometry.push({ phase: 'after-pan', ...afterPan });
     await timedControl(page, controls, 'minimap', async () => {
       await canvasControls
@@ -177,7 +181,9 @@ test('@scale isolated renderer stress with 2000 visible desktop nodes, not a ser
       phase: 'after-interactions',
       ...(await rendererGeometry(page)),
     });
-    await expect(page.locator('.react-flow__edge')).toHaveCount(graph.edges.length);
+    await expect(page.locator('.react-flow__edge')).toHaveCount(
+      graph.edges.length,
+    );
     memory.push({ phase: 'after-interactions', ...(await sampleMemory()) });
     await timedControl(page, controls, 'nodeList', async () => {
       await page

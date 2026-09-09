@@ -1,4 +1,5 @@
 .cache/
+.pnpm-store/
 .runtime/
 **/target/
 **/node_modules/

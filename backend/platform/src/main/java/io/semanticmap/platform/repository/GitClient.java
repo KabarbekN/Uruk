@@ -10,14 +10,22 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.function.BooleanSupplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
 public class GitClient {
     private final RepositoryPolicy policy;
+    private final CredentialStore credentialStore;
 
     public GitClient(RepositoryPolicy policy) {
+        this(policy, null);
+    }
+
+    @Autowired
+    public GitClient(RepositoryPolicy policy, CredentialStore credentialStore) {
         this.policy = policy;
+        this.credentialStore = credentialStore;
     }
 
     public record Entry(String mode, String sha, String path) {}
@@ -33,6 +41,29 @@ public class GitClient {
             return;
         }
         run(null, credentials, List.of("ls-remote", "--exit-code", "--", url, ref), 1048576, () -> false);
+    }
+
+    public List<String> listBranches(String url, String credentials) throws IOException {
+        policy.validate(url);
+        if (!policy.remote(url)) {
+            policy.localRoot(url);
+            return List.of("HEAD");
+        }
+        var result = run(null, credentials, List.of("ls-remote", "--heads", "--", url), 1048576, () -> false);
+        var branches = new ArrayList<String>();
+        for (String line : result.text().lines().toList()) {
+            int idx = line.indexOf("refs/heads/");
+            if (idx >= 0) {
+                String branch = line.substring(idx + "refs/heads/".length()).trim();
+                if (!branch.isEmpty() && !branches.contains(branch)) {
+                    branches.add(branch);
+                }
+            }
+        }
+        if (branches.isEmpty()) {
+            branches.add("main");
+        }
+        return branches;
     }
 
     public Tree fetch(String url, String ref, String credentials, Path bare, BooleanSupplier cancelled)
@@ -126,6 +157,16 @@ public class GitClient {
         if (reference != null) {
             String token = policy.property("semantic.repository.credentials." + reference + ".https-token");
             String key = policy.property("semantic.repository.credentials." + reference + ".ssh-key-path");
+            if (token == null && key == null) {
+                token = credentialStore != null ? credentialStore.resolveToken(reference) : null;
+                if (token == null
+                        && (reference.startsWith("ghp_")
+                                || reference.startsWith("github_pat_")
+                                || reference.startsWith("glpat-")
+                                || reference.length() > 30)) {
+                    token = reference;
+                }
+            }
             if (token != null) {
                 if (token.chars().anyMatch(c -> c < 32)) throw new IOException("INVALID_CREDENTIAL");
                 String username = policy.property("semantic.repository.credentials." + reference + ".https-username");

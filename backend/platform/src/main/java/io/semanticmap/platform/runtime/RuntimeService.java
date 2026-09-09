@@ -41,11 +41,13 @@ public class RuntimeService {
         var run = access.run(runId);
         UUID project = uuid(run.get("projectId")), org = tenant.orgId();
         access.requireProjectRole(project, "DEVELOPER");
-        db.one(
-                "SELECT id FROM analysis_run WHERE id=? AND organization_id=? AND project_id=? FOR UPDATE",
+        var locked = db.one(
+                "SELECT id,status FROM analysis_run WHERE id=? AND organization_id=? AND project_id=? FOR UPDATE",
                 runId,
                 org,
                 project);
+        if (!List.of("SUCCEEDED", "PARTIALLY_SUCCEEDED").contains(locked.get("status")))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Runtime traces require a completed analysis");
         long count = ((Number) db.one(
                                 "SELECT count(*) AS total FROM runtime_span WHERE organization_id=? AND project_id=? AND analysis_run_id=?",
                                 org,

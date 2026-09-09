@@ -29,6 +29,7 @@ export function createPresentation() {
       compact: boolean,
       selectedId: string | null,
       label: (value: string) => string,
+      steps?: Map<string, number>,
     ): Node[] {
       const pinned = new Set(pins);
       const next = new Map<string, NodeEntry>();
@@ -47,13 +48,15 @@ export function createPresentation() {
           entities.get(source.id) ?? (source.data.entity as SemanticNode);
         const isPinned = pinned.has(entity.stableKey);
         const selected = source.id === selectedId;
+        const stepIndex = steps?.get(source.id);
         const previousData = previous?.output.data;
         const data =
           previousData?.entity === entity &&
           previousData.pinned === isPinned &&
-          previousData.compact === compact
+          previousData.compact === compact &&
+          previousData.stepIndex === stepIndex
             ? previousData
-            : { entity, pinned: isPinned, compact };
+            : { entity, pinned: isPinned, compact, stepIndex };
         const output =
           previous?.source === source &&
           previous.output.data === data &&
@@ -76,14 +79,24 @@ export function createPresentation() {
       entities: Map<string, CanvasProjection['edges'][number]>,
       compact: boolean,
       selectedId: string | null,
+      steps?: Map<string, number>,
     ): Edge[] {
       const next = new Map<string, EdgeEntry>();
       const output = edges.map((installed) => {
         const source = entities.get(installed.id) ?? installed;
         const previous = previousEdges.get(source.id);
         const selected = source.id === selectedId;
+        const isReturnEdge = source.kind === 'RETURNS';
+        const isPathEdge = Boolean(
+          steps &&
+          steps.has(source.source) &&
+          steps.has(source.target) &&
+          steps.get(source.target) === (steps.get(source.source) ?? 0) + 1
+        );
         const output =
-          previous?.source === source && previous.compact === compact
+          previous?.source === source &&
+          previous.compact === compact &&
+          Boolean(previous.output.animated) === (isPathEdge || isReturnEdge)
             ? previous.output.selected === selected
               ? previous.output
               : { ...previous.output, selected }
@@ -94,11 +107,22 @@ export function createPresentation() {
                 type: 'smoothstep',
                 label: compact
                   ? undefined
-                  : source.label || source.kind.replaceAll('_', ' '),
+                  : source.label || (isReturnEdge ? 'Возврат ответа в начало' : source.kind.replaceAll('_', ' ')),
                 selected,
+                animated: isPathEdge || isReturnEdge,
                 markerEnd: marker,
-                style: source.confidence < 0.7 ? uncertain : solid,
-                labelStyle,
+                style: isReturnEdge
+                  ? { stroke: '#0284c7', strokeWidth: 2.5, strokeDasharray: '6 4' }
+                  : isPathEdge
+                    ? { stroke: '#0e7466', strokeWidth: 2.5 }
+                    : source.confidence < 0.7
+                      ? uncertain
+                      : solid,
+                labelStyle: isReturnEdge
+                  ? { ...labelStyle, fontWeight: 700, fill: '#0284c7' }
+                  : isPathEdge
+                    ? { ...labelStyle, fontWeight: 600, fill: '#0e7466' }
+                    : labelStyle,
                 labelBgStyle,
                 interactionWidth: 24,
                 ariaLabel: source.label || source.kind,

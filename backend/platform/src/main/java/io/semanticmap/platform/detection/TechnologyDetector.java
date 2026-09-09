@@ -99,12 +99,70 @@ public class TechnologyDetector {
                     component.build.add("BUNDLER");
                 }
                 if ("JAVA".equals(language) || "KOTLIN".equals(language)) {
-                    if (text.matches("(?s).*\\bimport\\s+org\\.springframework\\..*")) {
+                    if (text.contains("org.springframework.")) {
                         component.frameworks.add("SPRING_BOOT");
                         component.evidence(path, "SPRING_IMPORT", 0.95);
                     }
-                    if (text.matches("(?s).*\\bimport\\s+(jakarta|javax)\\.persistence\\..*"))
+                    if (text.contains("jakarta.persistence.") || text.contains("javax.persistence.")) {
                         component.frameworks.add("JPA");
+                    }
+                }
+                if ("PYTHON".equals(language) || name.equals("requirements.txt") || name.equals("pyproject.toml")) {
+                    String lower = text.toLowerCase(java.util.Locale.ROOT);
+                    if (lower.contains("fastapi")) {
+                        component.frameworks.add("FASTAPI");
+                        component.evidence(path, "FASTAPI_DEPENDENCY", 0.95);
+                    }
+                    if (lower.contains("django")) {
+                        component.frameworks.add("DJANGO");
+                        component.evidence(path, "DJANGO_DEPENDENCY", 0.95);
+                    }
+                    if (lower.contains("flask")) {
+                        component.frameworks.add("FLASK");
+                        component.evidence(path, "FLASK_DEPENDENCY", 0.95);
+                    }
+                    if (lower.contains("sqlalchemy")) {
+                        component.frameworks.add("SQLALCHEMY");
+                        component.evidence(path, "SQLALCHEMY_DEPENDENCY", 0.95);
+                    }
+                }
+                if ("GO".equals(language) || name.equals("go.mod")) {
+                    if (text.contains("github.com/gin-gonic/gin")) {
+                        component.frameworks.add("GIN");
+                        component.evidence(path, "GIN_DEPENDENCY", 0.95);
+                    }
+                    if (text.contains("github.com/labstack/echo")) {
+                        component.frameworks.add("ECHO");
+                        component.evidence(path, "ECHO_DEPENDENCY", 0.95);
+                    }
+                    if (text.contains("github.com/gofiber/fiber")) {
+                        component.frameworks.add("FIBER");
+                        component.evidence(path, "FIBER_DEPENDENCY", 0.95);
+                    }
+                    if (text.contains("gorm.io/gorm")) {
+                        component.frameworks.add("GORM");
+                        component.evidence(path, "GORM_DEPENDENCY", 0.95);
+                    }
+                }
+                if ("CSHARP".equals(language) || name.endsWith(".csproj")) {
+                    if (text.contains("Microsoft.AspNetCore")) {
+                        component.frameworks.add("ASPNETCORE");
+                        component.evidence(path, "ASPNETCORE_DEPENDENCY", 0.95);
+                    }
+                    if (text.contains("Microsoft.EntityFrameworkCore")) {
+                        component.frameworks.add("EFCORE");
+                        component.evidence(path, "EFCORE_DEPENDENCY", 0.95);
+                    }
+                }
+                if ("PHP".equals(language) || name.equals("composer.json")) {
+                    if (text.contains("laravel/framework") || text.contains("Illuminate\\")) {
+                        component.frameworks.add("LARAVEL");
+                        component.evidence(path, "LARAVEL_DEPENDENCY", 0.95);
+                    }
+                    if (text.contains("symfony/")) {
+                        component.frameworks.add("SYMFONY");
+                        component.evidence(path, "SYMFONY_DEPENDENCY", 0.95);
+                    }
                 }
                 if ("SQL".equals(language)) {
                     component.databases.add("POSTGRESQL");

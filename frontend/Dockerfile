@@ -1,7 +1,7 @@
 FROM node:24.19.0-alpine AS build
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.27.0 --activate
-COPY frontend/package.json frontend/pnpm-lock.yaml /app/frontend/
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml /app/frontend/
 WORKDIR /app/frontend
 RUN pnpm install --frozen-lockfile
 COPY docs/api-contract.yaml /app/docs/api-contract.yaml

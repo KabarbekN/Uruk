@@ -24,6 +24,33 @@ const height = 150;
 self.onmessage = async (event: MessageEvent<LayoutRequest>) => {
   try {
     const { nodes, edges, ownership } = event.data;
+
+    // Fast-path: When there are no edges, lay out nodes in a clean 2D grid matrix
+    // instead of stacking them in a single vertical column.
+    if (!ownership && edges.length === 0 && nodes.length > 0) {
+      const cols =
+        nodes.length <= 3
+          ? Math.max(1, nodes.length)
+          : nodes.length <= 8
+            ? 3
+            : nodes.length <= 20
+              ? 4
+              : 5;
+      const colWidth = width + 48;
+      const rowHeight = height + 40;
+      const output: LayoutResult = { positions: {}, groups: [] };
+      nodes.forEach((node, index) => {
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        output.positions[node.id] = {
+          x: 32 + col * colWidth,
+          y: 32 + row * rowHeight,
+        };
+      });
+      self.postMessage({ ok: true, result: output });
+      return;
+    }
+
     // Bound optimization work for large projections; retain ELK's layered layout.
     const scalableOptions: Record<string, string> =
       nodes.length >= 500 || edges.length >= 1000
@@ -42,9 +69,12 @@ self.onmessage = async (event: MessageEvent<LayoutRequest>) => {
           id: group.id,
           layoutOptions: {
             'elk.algorithm': 'layered',
-            'elk.direction': 'DOWN',
+            'elk.direction': 'RIGHT',
+            'elk.separateConnectedComponents': 'true',
+            'elk.aspectRatio': '1.6',
             'elk.padding': '[top=56,left=24,bottom=24,right=24]',
             'elk.spacing.nodeNode': '36',
+            'elk.layered.spacing.nodeNodeBetweenLayers': '60',
             ...scalableOptions,
           },
           children: nodes
@@ -58,9 +88,13 @@ self.onmessage = async (event: MessageEvent<LayoutRequest>) => {
         'elk.algorithm': 'layered',
         'elk.direction': 'RIGHT',
         'elk.hierarchyHandling': 'INCLUDE_CHILDREN',
-        'elk.layered.spacing.nodeNodeBetweenLayers': '88',
+        'elk.separateConnectedComponents': 'true',
+        'elk.spacing.componentComponent': '70',
+        'elk.aspectRatio': '1.6',
+        'elk.layered.spacing.nodeNodeBetweenLayers': '100',
         'elk.spacing.nodeNode': '40',
         'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+        'elk.layered.compaction.postCompaction.strategy': 'EDGE_LENGTH',
         ...scalableOptions,
         'elk.padding': '[top=24,left=24,bottom=24,right=24]',
       },

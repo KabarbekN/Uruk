@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 import {
   applyNodeChanges,
   Background,
@@ -15,6 +22,8 @@ import {
   type ReactFlowProps,
 } from '@xyflow/react';
 import {
+  ChevronLeft,
+  ChevronRight,
   Focus,
   LayoutGrid,
   LockKeyhole,
@@ -22,6 +31,7 @@ import {
   Minus,
   Plus,
   Save,
+  Sparkles,
   UnlockKeyhole,
 } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -55,16 +65,20 @@ const emptyPins: string[] = [];
 export function GraphSurface({
   runId,
   view,
+  rootNodeId,
   projection,
   savedLayout,
 }: {
   runId: string;
   view: CanvasView;
+  rootNodeId?: string;
   projection: CanvasProjection;
   savedLayout: CanvasLayout | null;
 }) {
   const { t, label } = useT();
-  const scope = `${runId}:${view}`;
+  const scope = rootNodeId
+    ? `${runId}:${view}:${rootNodeId}`
+    : `${runId}:${view}`;
   const flow = useReactFlow();
   const flowRef = useRef(flow);
   flowRef.current = flow;
@@ -93,18 +107,23 @@ export function GraphSurface({
   );
   const select = useCanvasStore((state) => state.select);
   const pins = useCanvasStore((state) => state.pins[scope] ?? emptyPins);
+  const useAiLabels = useCanvasStore((state) => state.useAiLabels);
+  const toggleAiLabels = useCanvasStore((state) => state.toggleAiLabels);
   const layoutRef = useRef<CanvasLayout>(
     useCanvasStore.getState().layouts[scope] ??
-      savedLayout ?? { positions: {}, viewport: { x: 0, y: 0, zoom: 1 } },
+      (rootNodeId ? null : savedLayout) ?? {
+        positions: {},
+        viewport: { x: 0, y: 0, zoom: 1 },
+      },
   );
   const defaultViewport = useRef(
     Object.keys(layoutRef.current.positions).length > 0
       ? layoutRef.current.viewport
       : { x: 0, y: 0, zoom: projection.nodes.length >= 500 ? 0.1 : 1 },
   ).current;
-  const freshLayout = useRef(false);
+  const freshLayout = useRef(Boolean(rootNodeId));
   const initialViewport = useRef(
-    Object.keys(layoutRef.current.positions).length > 0,
+    !rootNodeId && Object.keys(layoutRef.current.positions).length > 0,
   );
   const latestProjection = useRef(projection);
   latestProjection.current = projection;
@@ -151,6 +170,17 @@ export function GraphSurface({
     },
     [snapshotLayout, flush],
   );
+  useEffect(() => {
+    useCanvasStore
+      .getState()
+      .restorePins(scope, layoutRef.current.pinnedStableKeys ?? []);
+    return useCanvasStore.subscribe((state, previous) => {
+      if (state.pins[scope] !== previous.pins[scope]) {
+        if (!geometryReady.current) pending.current = true;
+        persist();
+      }
+    });
+  }, [scope, persist]);
   useEffect(
     () => () => {
       clearTimeout(timer.current);
@@ -219,11 +249,59 @@ export function GraphSurface({
       const positions = { ...layoutRef.current.positions };
       for (const node of mapped)
         positions[entities.get(node.id)!.stableKey] = node.position;
-      const shouldFit = freshLayout.current || !initialViewport.current;
+      // Find initial / root endpoint node to center on
+      const targetRootId =
+        rootNodeId ||
+        (graph.nodes.length <= 15
+          ? graph.nodes.find(
+              (n) => n.kind === 'ENDPOINT' || n.kind === 'BUSINESS_SCENARIO',
+            )?.id
+          : undefined);
+      const rootNode = targetRootId
+        ? mapped.find((n) => n.id === targetRootId)
+        : null;
+
+      let rootCenter: { x: number; y: number } | null = null;
+      if (rootNode) {
+        let absX = rootNode.position.x;
+        let absY = rootNode.position.y;
+        if (rootNode.parentId) {
+          const parentGroup = groups.find((g) => g.id === rootNode.parentId);
+          if (parentGroup) {
+            absX += parentGroup.position.x;
+            absY += parentGroup.position.y;
+          }
+        }
+        const w = rootNode.width ?? 264;
+        const h = rootNode.height ?? 150;
+        rootCenter = {
+          x: absX + w / 2,
+          y: absY + h / 2,
+        };
+      }
+
+      const shouldFit =
+        freshLayout.current || !initialViewport.current || Boolean(rootNodeId);
       const surface = surfaceRef.current;
       let viewport = layoutRef.current.viewport;
-      // Fit known ELK dimensions before mounting nodes to avoid a second costly render.
-      if (shouldFit && surface) {
+
+      // Center immediately on the start node at 100% zoom when focused on an endpoint
+      if (rootCenter && surface) {
+        const hasRightDock = Boolean(selectedNodeId || rootNodeId) && surface.clientWidth >= 1000;
+        const rightDockWidth = hasRightDock ? Math.min(580, surface.clientWidth * 0.42) : 0;
+        const visibleWidth = surface.clientWidth - rightDockWidth;
+        const targetScreenX = Math.max(150, visibleWidth / 2);
+        const targetScreenY = surface.clientHeight / 2;
+        const zoom = 1.0;
+        viewport = {
+          x: targetScreenX - rootCenter.x * zoom,
+          y: targetScreenY - rootCenter.y * zoom,
+          zoom,
+        };
+        if (typeof flowRef.current.setViewport === 'function') {
+          void flowRef.current.setViewport(viewport);
+        }
+      } else if (shouldFit && surface) {
         const bounds = getNodesBounds(groups.length ? groups : mapped);
         viewport = getViewportForBounds(
           bounds,
@@ -231,11 +309,15 @@ export function GraphSurface({
           surface.clientHeight,
           0.1,
           1,
-          0.18,
+          0.2,
         );
-        void flowRef.current.setViewport(viewport);
+        if (typeof flowRef.current.setViewport === 'function') {
+          void flowRef.current.setViewport(viewport);
+        }
       } else if (!shouldFit) {
-        void flowRef.current.setViewport(layoutRef.current.viewport);
+        if (typeof flowRef.current.setViewport === 'function') {
+          void flowRef.current.setViewport(layoutRef.current.viewport);
+        }
       }
       cancelInstallation = installGraph(
         [...groups, ...mapped],
@@ -244,6 +326,15 @@ export function GraphSurface({
         (batch) => setInstalledEdges((current) => [...current, ...batch]),
         () => {
           if (cancelled) return;
+          const previousPins = layoutRef.current.pinnedStableKeys ?? [];
+          const currentPins = useCanvasStore.getState().pins[scope] ?? [];
+          // List selection can pin before geometry exists. Persist that change
+          // once the graph has real positions for the selected stable keys.
+          if (
+            currentPins.length !== previousPins.length ||
+            currentPins.some((key) => !previousPins.includes(key))
+          )
+            pending.current = true;
           // Publish only complete geometry. Cancelled partial DOM never enters persistence.
           layoutRef.current = { positions, viewport };
           completedNodes.current = graph.nodes;
@@ -253,6 +344,34 @@ export function GraphSurface({
           freshLayout.current = false;
           setArranging(false);
           if (pending.current) setCapacityExceeded(!flush());
+
+          if (rootCenter && surfaceRef.current) {
+            const surfaceEl = surfaceRef.current;
+            setTimeout(() => {
+              const hasRightDock = Boolean(selectedNodeId || rootNodeId) && surfaceEl.clientWidth >= 1000;
+              const rightDockWidth = hasRightDock ? Math.min(580, surfaceEl.clientWidth * 0.42) : 0;
+              const visibleWidth = surfaceEl.clientWidth - rightDockWidth;
+              const targetScreenX = Math.max(150, visibleWidth / 2);
+              const targetScreenY = surfaceEl.clientHeight / 2;
+              const zoom = 1.0;
+              if (typeof flowRef.current.setViewport === 'function') {
+                void flowRef.current.setViewport(
+                  {
+                    x: targetScreenX - rootCenter.x * zoom,
+                    y: targetScreenY - rootCenter.y * zoom,
+                    zoom,
+                  },
+                  { duration: 250 },
+                );
+              }
+            }, 60);
+          } else if (shouldFit) {
+            setTimeout(() => {
+              if (typeof flowRef.current.fitView === 'function') {
+                void flowRef.current.fitView({ padding: 0.2, maxZoom: 1 });
+              }
+            }, 60);
+          }
         },
       );
     };
@@ -331,6 +450,278 @@ export function GraphSurface({
     () => new Map(projection.edges.map((edge) => [edge.id, edge])),
     [projection.edges],
   );
+  // Compute call path step levels from scenario origin (rootNodeId, sole endpoint, or by walking back along FLOWS_TO from selectedNodeId)
+  const scenarioOriginId = useMemo(() => {
+    if (rootNodeId) return rootNodeId;
+    if (!selectedNodeId) {
+      const endpoints = projection.nodes.filter(
+        (n) => n.kind === 'ENDPOINT' || n.kind === 'BUSINESS_SCENARIO',
+      );
+      if (endpoints.length === 1 && endpoints[0]) return endpoints[0].id;
+      return undefined;
+    }
+
+    // Map incoming edges to find the root endpoint of the scenario
+    const incomingFlowsTo = new Map<string, string>();
+    const incomingBranches = new Map<string, string>();
+
+    for (const edge of projection.edges) {
+      if (edge.kind === 'RETURNS') continue;
+      if (edge.kind === 'FLOWS_TO') {
+        incomingFlowsTo.set(edge.target, edge.source);
+      } else {
+        incomingBranches.set(edge.target, edge.source);
+      }
+    }
+
+    // If selected node is a branch (e.g. exception), hop to its parent spine step first
+    let curr = selectedNodeId;
+    const branchParent = incomingBranches.get(curr);
+    if (branchParent) {
+      curr = branchParent;
+    }
+
+    // Walk backwards along FLOWS_TO to find the origin of the pipeline
+    const visited = new Set<string>();
+    while (curr && !visited.has(curr)) {
+      visited.add(curr);
+      const prev = incomingFlowsTo.get(curr);
+      if (!prev) break;
+      curr = prev;
+    }
+
+    return curr;
+  }, [rootNodeId, selectedNodeId, projection.nodes, projection.edges]);
+
+  const stepDistances = useMemo(() => {
+    if (!scenarioOriginId) return new Map<string, number>();
+    const steps = new Map<string, number>();
+    steps.set(scenarioOriginId, 0);
+
+    const adj = new Map<string, string[]>();
+    for (const edge of projection.edges) {
+      if (edge.kind === 'RETURNS') continue;
+      const list = adj.get(edge.source) ?? [];
+      list.push(edge.target);
+      adj.set(edge.source, list);
+    }
+
+    const queue: [string, number][] = [[scenarioOriginId, 0]];
+    while (queue.length > 0) {
+      const [curr, d] = queue.shift()!;
+      if (d >= 8) continue;
+      const neighbors = adj.get(curr) ?? [];
+      for (const next of neighbors) {
+        if (!steps.has(next)) {
+          steps.set(next, d + 1);
+          queue.push([next, d + 1]);
+        }
+      }
+    }
+    return steps;
+  }, [scenarioOriginId, projection.edges]);
+
+  // Sequential list of step nodes for keyboard arrow navigation (← / →)
+  const orderedStepSequence = useMemo(() => {
+    const flowsToAdj = new Map<string, string>();
+    const branchesAdj = new Map<string, string[]>();
+
+    for (const edge of projection.edges) {
+      if (edge.kind === 'RETURNS') continue;
+      if (edge.kind === 'FLOWS_TO') {
+        flowsToAdj.set(edge.source, edge.target);
+      } else {
+        const list = branchesAdj.get(edge.source) ?? [];
+        list.push(edge.target);
+        branchesAdj.set(edge.source, list);
+      }
+    }
+
+    const sequence: string[] = [];
+    const visited = new Set<string>();
+
+    if (scenarioOriginId) {
+      let curr: string | undefined = scenarioOriginId;
+      while (curr && !visited.has(curr)) {
+        visited.add(curr);
+        sequence.push(curr);
+
+        const branches = branchesAdj.get(curr) ?? [];
+        for (const b of branches) {
+          if (!visited.has(b)) {
+            visited.add(b);
+            sequence.push(b);
+          }
+        }
+
+        curr = flowsToAdj.get(curr);
+      }
+    }
+
+    if (sequence.length <= 1) {
+      if (stepDistances.size > 1) {
+        return Array.from(stepDistances.entries())
+          .sort((a, b) => a[1] - b[1])
+          .map(([id]) => id);
+      }
+      // General canvas fallback: order nodes by horizontal X position (left to right)
+      const sorted = [...projection.nodes].sort((a, b) => {
+        const na = nodes.find((n) => n.id === a.id);
+        const nb = nodes.find((n) => n.id === b.id);
+        if (na && nb) {
+          if (Math.abs(na.position.x - nb.position.x) > 40) {
+            return na.position.x - nb.position.x;
+          }
+          return na.position.y - nb.position.y;
+        }
+        return a.label.localeCompare(b.label);
+      });
+      return sorted.map((n) => n.id);
+    }
+
+    return sequence;
+  }, [scenarioOriginId, projection.edges, projection.nodes, nodes, stepDistances]);
+
+  const currentStepIndex = selectedNodeId
+    ? orderedStepSequence.indexOf(selectedNodeId)
+    : -1;
+
+  const centerOnNode = useCallback(
+    (targetId: string, duration = 300) => {
+      const surface = surfaceRef.current;
+      const flowNode = nodes.find((n) => n.id === targetId);
+      if (!surface || !flowNode) return;
+
+      let absX = flowNode.position.x;
+      let absY = flowNode.position.y;
+      if (flowNode.parentId) {
+        const parentNode = nodes.find((n) => n.id === flowNode.parentId);
+        if (parentNode) {
+          absX += parentNode.position.x;
+          absY += parentNode.position.y;
+        }
+      }
+      const nodeWidth = flowNode.width ?? 264;
+      const nodeHeight = flowNode.height ?? 150;
+      const centerX = absX + nodeWidth / 2;
+      const centerY = absY + nodeHeight / 2;
+
+      const hasRightDock = Boolean(selectedNodeId || rootNodeId) && surface.clientWidth >= 1000;
+      const rightDockWidth = hasRightDock ? Math.min(580, surface.clientWidth * 0.42) : 0;
+      const visibleWidth = surface.clientWidth - rightDockWidth;
+      const targetScreenX = Math.max(150, visibleWidth / 2);
+      const targetScreenY = surface.clientHeight / 2;
+
+      const zoom = 1.0;
+      const nextViewport = {
+        x: targetScreenX - centerX * zoom,
+        y: targetScreenY - centerY * zoom,
+        zoom,
+      };
+
+      if (typeof flowRef.current.setViewport === 'function') {
+        void flowRef.current.setViewport(nextViewport, { duration });
+      }
+    },
+    [nodes, selectedNodeId, rootNodeId],
+  );
+
+  useEffect(() => {
+    const handleCenterRoot = () => {
+      const targetId = rootNodeId || scenarioOriginId;
+      if (targetId) {
+        centerOnNode(targetId, 350);
+      }
+    };
+
+    window.addEventListener('center-root-node', handleCenterRoot);
+    return () => {
+      window.removeEventListener('center-root-node', handleCenterRoot);
+    };
+  }, [rootNodeId, scenarioOriginId, centerOnNode]);
+
+  const navigateStep = useCallback(
+    (direction: 1 | -1) => {
+      if (orderedStepSequence.length === 0) return;
+
+      const currentIdx = selectedNodeId
+        ? orderedStepSequence.indexOf(selectedNodeId)
+        : -1;
+
+      let nextIdx: number;
+      if (currentIdx === -1) {
+        nextIdx = direction === 1 ? 0 : orderedStepSequence.length - 1;
+      } else {
+        nextIdx =
+          (currentIdx + direction + orderedStepSequence.length) %
+          orderedStepSequence.length;
+      }
+
+      const targetId = orderedStepSequence[nextIdx];
+      if (!targetId) return;
+      const entity = entitiesById.get(targetId);
+      if (!entity) return;
+
+      select({
+        kind: 'nodes',
+        id: targetId,
+        label: entity.label,
+      });
+
+      centerOnNode(targetId, 350);
+    },
+    [orderedStepSequence, selectedNodeId, entitiesById, select, centerOnNode],
+  );
+
+  useEffect(() => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (orderedStepSequence.length <= 1) return;
+
+      const active = document.activeElement;
+      if (
+        active &&
+        (active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.tagName === 'SELECT' ||
+          (active as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+
+      // Do not capture if inside a modal dialog (e.g. ModelManagerModal)
+      if (
+        active?.closest('.modal-backdrop, .modal-dialog, dialog') ||
+        document.querySelector('.modal-backdrop, .modal-dialog')
+      ) {
+        return;
+      }
+
+      const isRight =
+        e.key === 'ArrowRight' ||
+        e.key === 'ArrowDown' ||
+        e.code === 'ArrowRight' ||
+        e.code === 'ArrowDown';
+      const isLeft =
+        e.key === 'ArrowLeft' ||
+        e.key === 'ArrowUp' ||
+        e.code === 'ArrowLeft' ||
+        e.code === 'ArrowUp';
+
+      if (isRight) {
+        e.preventDefault();
+        e.stopPropagation();
+        navigateStep(1);
+      } else if (isLeft) {
+        e.preventDefault();
+        e.stopPropagation();
+        navigateStep(-1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [orderedStepSequence, navigateStep]);
+
   const displayNodes = useMemo(
     () =>
       presentation.nodes(
@@ -340,13 +731,36 @@ export function GraphSurface({
         compact,
         selectedNodeId,
         label,
+        stepDistances,
       ),
-    [presentation, nodes, entitiesById, pins, compact, selectedNodeId, label],
+    [
+      presentation,
+      nodes,
+      entitiesById,
+      pins,
+      compact,
+      selectedNodeId,
+      label,
+      stepDistances,
+    ],
   );
   const edges = useMemo(
     () =>
-      presentation.edges(installedEdges, edgesById, compact, selectedEdgeId),
-    [presentation, installedEdges, edgesById, compact, selectedEdgeId],
+      presentation.edges(
+        installedEdges,
+        edgesById,
+        compact,
+        selectedEdgeId,
+        stepDistances,
+      ),
+    [
+      presentation,
+      installedEdges,
+      edgesById,
+      compact,
+      selectedEdgeId,
+      stepDistances,
+    ],
   );
   const onNodesChange = useCallback(
     (changes: NodeChange[]) =>
@@ -371,9 +785,35 @@ export function GraphSurface({
   );
   const onEdgeClick = useCallback<NonNullable<ReactFlowProps['onEdgeClick']>>(
     (_event, edge) => {
-      select({ kind: 'edges', id: edge.id, label: String(edge.label ?? '') });
+      select({ kind: 'edges', id: edge.id, label: edge.ariaLabel ?? edge.id });
     },
     [select],
+  );
+  // React Flow's keyboard selection updates its own store. Evidence selection
+  // belongs to our UI store, so activate focused wrappers through the same path.
+  const onGraphKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.repeat || !['Enter', ' '].includes(event.key)) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const id = target.getAttribute('data-id');
+      if (!id) return;
+      const node = target.matches('.react-flow__node')
+        ? entitiesById.get(id)
+        : undefined;
+      const edge = target.matches('.react-flow__edge')
+        ? edgesById.get(id)
+        : undefined;
+      if (!node && !edge) return;
+      event.preventDefault();
+      event.stopPropagation();
+      select({
+        kind: node ? 'nodes' : 'edges',
+        id,
+        label: node?.label ?? edge!.label ?? edge!.kind,
+      });
+    },
+    [entitiesById, edgesById, select],
   );
   const onPaneClick = useCallback(() => select(null), [select]);
   const onNodeDragStop = useCallback<
@@ -406,7 +846,11 @@ export function GraphSurface({
     [persist],
   );
   return (
-    <div className="graph-surface" ref={surfaceRef}>
+    <div
+      className="graph-surface"
+      ref={surfaceRef}
+      onKeyDownCapture={onGraphKeyDown}
+    >
       <ReactFlow
         nodes={displayNodes}
         edges={edges}
@@ -451,7 +895,14 @@ export function GraphSurface({
             <IconButton
               icon={Focus}
               label={t('fit')}
-              onClick={() => void flow.fitView({ padding: 0.18, maxZoom: 1 })}
+              onClick={() => {
+                const targetId = rootNodeId || scenarioOriginId;
+                if (targetId) {
+                  centerOnNode(targetId, 300);
+                } else {
+                  void flow.fitView({ padding: 0.18, maxZoom: 1 });
+                }
+              }}
             />
             <span className="control-divider" />
             <IconButton
@@ -461,6 +912,12 @@ export function GraphSurface({
                 freshLayout.current = true;
                 setGeneration((value) => value + 1);
               }}
+            />
+            <IconButton
+              icon={Sparkles}
+              label={useAiLabels ? t('aiHumanReadable') : t('aiTechnicalNames')}
+              aria-pressed={useAiLabels}
+              onClick={toggleAiLabels}
             />
             <IconButton
               icon={locked ? LockKeyhole : UnlockKeyhole}
@@ -488,6 +945,52 @@ export function GraphSurface({
             />
           </div>
         </Panel>
+        {orderedStepSequence.length > 1 && (
+          <Panel position="bottom-center">
+            <div className="stepper-hud">
+              <button
+                type="button"
+                onClick={() => navigateStep(-1)}
+                title="Предыдущий шаг (клавиша ← или ↑)"
+                aria-label="Предыдущий шаг"
+              >
+                <ChevronLeft size={15} />
+              </button>
+              <div
+                className="stepper-info"
+                style={{ cursor: 'pointer' }}
+                onClick={() => {
+                  const targetId = rootNodeId || scenarioOriginId;
+                  if (targetId) centerOnNode(targetId, 300);
+                }}
+                title="Нажмите, чтобы центрировать на начальной точке"
+              >
+                {currentStepIndex >= 0 ? (
+                  <>
+                    <span>
+                      Шаг <strong>{currentStepIndex + 1}</strong> из{' '}
+                      <strong>{orderedStepSequence.length}</strong>
+                    </span>
+                    <span className="stepper-hint">(← / →)</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{orderedStepSequence.length} шагов в сценарии</span>
+                    <span className="stepper-hint">(нажмите → для навигации)</span>
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => navigateStep(1)}
+                title="Следующий шаг (клавиша → или ↓)"
+                aria-label="Следующий шаг"
+              >
+                <ChevronRight size={15} />
+              </button>
+            </div>
+          </Panel>
+        )}
         {showMinimap && (
           <MiniMap position="top-right" pannable zoomable nodeColor="#a9d7cf" />
         )}

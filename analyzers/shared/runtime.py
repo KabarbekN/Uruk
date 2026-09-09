@@ -20,8 +20,8 @@ MAX_FILES = 10000
 MAX_ENTRIES = 100000
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_SOURCE_BYTES = 64 * 1024 * 1024
-IGNORED = {".git", "target", "node_modules", ".deps", "__pycache__"}
-GENERATED = {"dist", "build", "generated", "generated-sources"}
+IGNORED = {".git", "node_modules", ".deps", "__pycache__"}
+GENERATED = {"target", "dist", "build", "generated", "generated-sources"}
 
 
 def digest(value):
@@ -75,6 +75,8 @@ class Run:
         self.request = {}
         self.facts, self.diagnostics = [], []
         self.fact_ids = set()
+        self.facts_by_id = {}
+        self.truncated_relations = set()
         self.partial = set()
         self.unknown = set()
         self.counts = {"filesDiscovered": 0, "filesParsed": 0, "filesFailed": 0,
@@ -111,11 +113,30 @@ class Run:
             raise Rejected("OUTPUT_LIMIT", "Fact output byte budget reached")
         self.bytes_used += size
         self.fact_ids.add(fact_id)
+        self.facts_by_id[fact_id] = value
         self.facts.append(value)
         return key
 
     def relation(self, source, target, edge, evidence, origin="STATIC_SYNTAX", confidence=0.8):
-        return self.fact("RELATION", f"relation:{edge}:{source}->{target}", edge, source,
+        key = f"relation:{edge}:{source}->{target}"
+        previous = self.facts_by_id.get(digest(key)[7:])
+        if previous is not None:
+            self.tick()
+            if evidence not in previous["evidence"]:
+                if len(previous["evidence"]) >= 32:
+                    self.unknown.add("RELATION_EVIDENCE_LIMIT")
+                    if key not in self.truncated_relations:
+                        self.truncated_relations.add(key)
+                        self.diagnostic("RELATION_EVIDENCE_LIMIT", "Relation retains the first 32 distinct evidence locations",
+                                        evidence.get("filePath"), evidence.get("startLine"))
+                    return key
+                added_bytes = len(encode(evidence).encode("utf-8")) + 1
+                if self.bytes_used + added_bytes > self.output_limit - 131072:
+                    raise Rejected("OUTPUT_LIMIT", "Fact output byte budget reached")
+                self.bytes_used += added_bytes
+                previous["evidence"].append(evidence)
+            return key
+        return self.fact("RELATION", key, edge, source,
                          evidence, origin, confidence, sourceKey=source, targetKey=target, edgeKind=edge)
 
     def load(self, request_path):
@@ -151,8 +172,11 @@ class Run:
             if type(policy.get(field, default)) is not int or policy.get(field, default) <= 0:
                 raise Rejected("INVALID_REQUEST", f"policy.{field} must be a positive integer", 20)
         self.request = req
+        if policy.get("executeBuildScripts") or policy.get("resolveDependencies"):
+            raise Rejected("UNSUPPORTED_EXECUTION_POLICY",
+                           "SAFE_STATIC requires build execution and dependency resolution disabled")
         self.deadline = time.monotonic() + min(600, policy.get("maxDurationSeconds", 600))
-        self.output_limit = min(256 * 1024 * 1024, policy.get("maxOutputBytes", self.output_limit))
+        self.output_limit = min(512 * 1024 * 1024, policy.get("maxOutputBytes", self.output_limit))
         if self.output_limit < 262144:
             raise Rejected("OUTPUT_LIMIT", "At least 262144 output bytes are required")
         workspace_path = Path(os.environ.get("SEMANTIC_WORKSPACE", "/workspace")).absolute()
@@ -190,6 +214,15 @@ class Run:
                 raise Rejected("IGNORE_LIMIT", ".semanticmapignore exceeds 64 KiB")
             patterns = ignore_path.read_text(encoding="utf-8-sig").splitlines()
         ignore = pathspec.GitIgnoreSpec.from_lines(patterns)
+        # A selected component remains subject to every ancestor's exclusion,
+        # including an ignored parent that gitignore negation cannot reopen.
+        ancestor = PurePosixPath()
+        for part in self.root.relative_to(self.workspace).parts:
+            ancestor /= part
+            if (part in IGNORED or ignore.match_file(ancestor.as_posix() + "/")
+                    or (not policy.get("includeGeneratedSources", False) and part in GENERATED)
+                    or (not policy.get("includeTests", True) and (part in {"test", "tests", "__tests__"} or ".test." in part or ".spec." in part))):
+                return
         pending = [(self.root, 0)]
         while pending:
             directory, depth = pending.pop()
@@ -256,7 +289,15 @@ class Run:
         for parent in [output, *output.parents]:
             if parent.exists() and linked(parent):
                 raise Rejected("SYMLINK_REJECTED", "Output traverses a symlink")
-        if hasattr(self, "workspace") and (output == self.workspace or self.workspace in output.parents):
+        # Check links before resolving, then compare canonical paths so '..' cannot
+        # disguise a writable result directory inside the read-only source tree.
+        output = output.resolve()
+        # Request/schema/policy rejection can occur before load() assigns the
+        # workspace. Failure envelopes must still preserve the source snapshot.
+        workspace = getattr(self, "workspace", None)
+        if workspace is None:
+            workspace = Path(os.environ.get("SEMANTIC_WORKSPACE", "/workspace")).resolve()
+        if output == workspace or workspace in output.parents:
             raise Rejected("OUTPUT_IN_WORKSPACE", "Output must be outside the read-only workspace")
         output.mkdir(parents=True, exist_ok=True)
         partial = bool(self.partial or self.unknown or self.counts["filesFailed"])

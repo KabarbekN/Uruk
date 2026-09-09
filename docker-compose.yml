@@ -28,6 +28,11 @@ services:
       WORKER_ENABLED: "false"
       ARTIFACT_ROOT: /artifacts
       REPOSITORY_ROOTS: /repository
+      SEMANTIC_AI_OLLAMA_URL: http://ollama:11434
+      SEMANTIC_AI_BASE_URL: http://ollama:11434/v1
+      SEMANTIC_AI_MODEL: ${SEMANTIC_AI_MODEL:-qwen2.5-coder:1.5b}
+      AI_BASE_URL: http://ollama:11434/v1
+      SEMANTIC_AI_LOCAL_HOSTS: localhost,127.0.0.1,::1,[::1],ollama,semanticmap-ollama
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
@@ -36,6 +41,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      ollama:
+        condition: service_started
   platform-worker:
     image: semanticmap/platform:0.1.0
     user: "${WORKER_UID:-0}:${DOCKER_GID:-0}"
@@ -47,6 +54,11 @@ services:
       ARTIFACT_ROOT: /artifacts
       REPOSITORY_ROOTS: /repository
       SEMANTIC_ARTIFACT_HOST_PATH: ${ARTIFACT_HOST_PATH:-}
+      SEMANTIC_AI_OLLAMA_URL: http://ollama:11434
+      SEMANTIC_AI_BASE_URL: http://ollama:11434/v1
+      SEMANTIC_AI_MODEL: ${SEMANTIC_AI_MODEL:-qwen2.5-coder:1.5b}
+      AI_BASE_URL: http://ollama:11434/v1
+      SEMANTIC_AI_LOCAL_HOSTS: localhost,127.0.0.1,::1,[::1],ollama,semanticmap-ollama
     volumes:
       - .:/repository:ro
       - ${ARTIFACT_HOST_PATH:-./.runtime/artifacts}:/artifacts
@@ -54,6 +66,14 @@ services:
     depends_on:
       platform-api:
         condition: service_started
+  ollama:
+    image: ollama/ollama:latest
+    container_name: semanticmap-ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
   frontend:
     build:
       context: .
@@ -65,3 +85,4 @@ services:
       - platform-api
 volumes:
   postgres-data:
+  ollama-data:

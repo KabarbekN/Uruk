@@ -54,7 +54,24 @@ vi.mock('@xyflow/react', async (original) => ({
   ...(await original<typeof import('@xyflow/react')>()),
   ReactFlow: (props: ReactFlowProps) => {
     harness.props = props;
-    return props.children;
+    return (
+      <>
+        <div
+          className="react-flow__node"
+          data-id={projection.nodes[0]!.id}
+          tabIndex={0}
+        />
+        <svg>
+          <g
+            className="react-flow__edge"
+            data-id={projection.edges[0]!.id}
+            tabIndex={0}
+          />
+        </svg>
+        <button data-id={projection.nodes[0]!.id}>Unrelated control</button>
+        {props.children}
+      </>
+    );
   },
   Panel: ({ children }: PropsWithChildren) => children,
   Background: () => null,
@@ -127,6 +144,31 @@ beforeEach(() => {
 });
 
 describe('GraphSurface saved layout and bounded persistence', () => {
+  it('opens node and edge evidence with Enter or Space without hijacking controls', () => {
+    const { container } = mount();
+    fireEvent.keyDown(container.querySelector('.react-flow__node')!, {
+      key: 'Enter',
+    });
+    expect(useCanvasStore.getState().selected).toEqual({
+      kind: 'nodes',
+      id: projection.nodes[0]!.id,
+      label: projection.nodes[0]!.label,
+    });
+    fireEvent.keyDown(container.querySelector('.react-flow__edge')!, {
+      key: ' ',
+    });
+    expect(useCanvasStore.getState().selected).toEqual({
+      kind: 'edges',
+      id: projection.edges[0]!.id,
+      label: projection.edges[0]!.label,
+    });
+    fireEvent.keyDown(
+      screen.getByRole('button', { name: 'Unrelated control' }),
+      { key: 'Enter' },
+    );
+    expect(useCanvasStore.getState().selected?.kind).toBe('edges');
+  });
+
   it('restores a complete saved layout and viewport without constructing a worker', () => {
     const saved = overviewLayout(projection.nodes);
     mount(projection, saved);
@@ -139,9 +181,37 @@ describe('GraphSurface saved layout and bounded persistence', () => {
       ).toEqual(saved.positions[node.stableKey]);
   });
 
+  it('restores server pins after a fresh session and persists an unpin without another layout edit', async () => {
+    const pinned = projection.nodes[0]!;
+    const saved = {
+      ...overviewLayout(projection.nodes),
+      pinnedStableKeys: [pinned.stableKey],
+    };
+    const server = createLayoutServer(projection.nodes, saved);
+    const save = vi
+      .spyOn(api, 'saveLayout')
+      .mockImplementation(async (_id, _view, body) => server.put(body).json);
+    const rendered = mount(projection, server.get());
+    expect(useCanvasStore.getState().pins[scope]).toEqual([pinned.stableKey]);
+    expect(
+      harness.props.nodes!.find((node) => node.id === pinned.id)!.draggable,
+    ).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    act(() => useCanvasStore.getState().togglePin(scope, pinned.stableKey));
+    await waitFor(() => expect(server.get().pinnedStableKeys).toEqual([]));
+    rendered.unmount();
+    useCanvasStore.setState({ layouts: {}, pins: {} });
+    mount(projection, server.get());
+    expect(useCanvasStore.getState().pins[scope]).toEqual([]);
+    expect(
+      harness.props.nodes!.find((node) => node.id === pinned.id)!.draggable,
+    ).toBeUndefined();
+  });
+
   it('runs the worker on explicit arrange, preserving pinned positions only', () => {
     const saved = overviewLayout(projection.nodes);
     const pinned = projection.nodes[0]!;
+    saved.pinnedStableKeys = [pinned.stableKey];
     useCanvasStore.setState({ pins: { [scope]: [pinned.stableKey] } });
     mount(projection, saved);
     fireEvent.click(screen.getByRole('button', { name: 'Arrange nodes' }));
@@ -173,6 +243,26 @@ describe('GraphSurface saved layout and bounded persistence', () => {
     );
   });
 
+  it('saves a pin selected in the list after real graph geometry becomes available', async () => {
+    const pinned = projection.nodes[2]!;
+    const saved = overviewLayout(projection.nodes.slice(0, 2));
+    const server = createLayoutServer(projection.nodes, saved);
+    const save = vi
+      .spyOn(api, 'saveLayout')
+      .mockImplementation(async (_id, _view, body) => server.put(body).json);
+    useCanvasStore.setState({ pins: { [scope]: [pinned.stableKey] } });
+    mount(projection, saved);
+    expect(save).not.toHaveBeenCalled();
+    const result = reply();
+    await waitFor(() =>
+      expect(server.get().pinnedStableKeys).toEqual([pinned.stableKey]),
+    );
+    expect(server.get().positions[pinned.stableKey]).toEqual(
+      result.positions[pinned.id],
+    );
+    expect(server.rejected).toEqual([]);
+  });
+
   it('still requests ownership group geometry when all node positions are saved', () => {
     mount(projection, overviewLayout(projection.nodes), 'DATA_OWNERSHIP');
     expect(harness.workers).toHaveLength(1);
@@ -186,6 +276,7 @@ describe('GraphSurface saved layout and bounded persistence', () => {
     async (mode) => {
       const saved = overviewLayout(fullGraph.nodes.slice(0, 2000));
       const pinned = fullGraph.nodes[0]!;
+      saved.pinnedStableKeys = [pinned.stableKey];
       useCanvasStore.setState({ pins: { [scope]: [pinned.stableKey] } });
       const server = createLayoutServer(fullGraph.nodes, saved);
       const save = vi
@@ -320,13 +411,11 @@ describe('GraphSurface saved layout and bounded persistence', () => {
     mount();
     const before = harness.props;
     act(() =>
-      useCanvasStore
-        .getState()
-        .select({
-          kind: 'nodes',
-          id: projection.nodes[1]!.id,
-          label: projection.nodes[1]!.label,
-        }),
+      useCanvasStore.getState().select({
+        kind: 'nodes',
+        id: projection.nodes[1]!.id,
+        label: projection.nodes[1]!.label,
+      }),
     );
     expect(harness.props.nodes![0]).toBe(before.nodes![0]);
     expect(harness.props.nodes![2]).toBe(before.nodes![2]);

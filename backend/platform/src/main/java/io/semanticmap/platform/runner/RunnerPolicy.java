@@ -1,5 +1,7 @@
 package io.semanticmap.platform.runner;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -13,6 +15,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class RunnerPolicy {
     private final Environment environment;
+    private volatile String detectedHostPath;
 
     public RunnerPolicy(Environment environment) {
         this.environment = environment;
@@ -23,7 +26,7 @@ public class RunnerPolicy {
     }
 
     public long maxOutputBytes() {
-        return environment.getProperty("semantic.runner.max-output-bytes", Long.class, 134217728L);
+        return environment.getProperty("semantic.runner.max-output-bytes", Long.class, 536870912L);
     }
 
     public String docker() {
@@ -31,8 +34,7 @@ public class RunnerPolicy {
     }
 
     public String namespace() {
-        String root = environment.getProperty(
-                "semantic.artifact-host-path", artifactRoot().toString());
+        String root = getArtifactHostPath(artifactRoot());
         if (root.isBlank()) root = artifactRoot().toString();
         return io.semanticmap.contract.Protocol.hash(root.replace('\\', '/').replaceAll("/+$", ""))
                 .substring(7);
@@ -60,13 +62,62 @@ public class RunnerPolicy {
             throw new IllegalArgumentException("ANALYZER_IMAGE_VERSION_REQUIRED");
     }
 
+    public String getArtifactHostPath(Path root) {
+        String configured = environment.getProperty("semantic.artifact-host-path", "");
+        if (!configured.isBlank()) {
+            return configured;
+        }
+        if (detectedHostPath != null) {
+            return detectedHostPath;
+        }
+        detectedHostPath = autoDetectHostPath(root);
+        return detectedHostPath;
+    }
+
+    private String autoDetectHostPath(Path root) {
+        try {
+            String hostname = System.getenv("HOSTNAME");
+            if (hostname == null || hostname.isBlank()) {
+                Path hostnameFile = Path.of("/etc/hostname");
+                if (Files.exists(hostnameFile)) {
+                    hostname = Files.readString(hostnameFile).trim();
+                }
+            }
+            if (hostname == null || hostname.isBlank()) {
+                return "";
+            }
+            ProcessBuilder pb = new ProcessBuilder(docker(), "inspect", hostname);
+            Process p = pb.start();
+            byte[] bytes = p.getInputStream().readAllBytes();
+            p.waitFor();
+            if (p.exitValue() == 0 && bytes.length > 0) {
+                JsonNode rootNode = new ObjectMapper().readTree(bytes);
+                if (rootNode.isArray() && !rootNode.isEmpty()) {
+                    JsonNode mounts = rootNode.get(0).path("Mounts");
+                    String rootStr = root.toString().replace('\\', '/');
+                    for (JsonNode mount : mounts) {
+                        String dest = mount.path("Destination").asText().replace('\\', '/');
+                        if (rootStr.equalsIgnoreCase(dest)) {
+                            String source = mount.path("Source").asText();
+                            if (!source.isBlank()) {
+                                return source;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
     public String hostPath(Path path) throws IOException {
         Path absolute = path.toAbsolutePath().normalize();
         Path root = artifactRoot();
         if (!absolute.startsWith(root) || absolute.equals(root))
             throw new IOException("ANALYZER_ARTIFACT_PATH_NOT_ALLOWED");
         rejectLinks(absolute);
-        String configured = environment.getProperty("semantic.artifact-host-path", "");
+        String configured = getArtifactHostPath(root);
         String host = configured.isBlank()
                 ? absolute.toString()
                 : configured.replace('\\', '/').replaceAll("/+$", "") + "/"

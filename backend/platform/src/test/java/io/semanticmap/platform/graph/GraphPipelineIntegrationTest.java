@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
@@ -112,8 +113,27 @@ class GraphPipelineIntegrationTest {
         assertThat(count("fact_quarantine", run.id())).isEqualTo(3);
         build(run);
         int nodes = count("semantic_node", run.id());
+        int edges = count("semantic_edge", run.id());
+        int assertions = count("assertion", run.id());
+        int scenarios = count("business_scenario", run.id());
+        UUID scenarioNode = (UUID) db.one(
+                        "SELECT node_id FROM business_scenario WHERE organization_id=? AND project_id=? AND analysis_run_id=?",
+                        org,
+                        project,
+                        run.id())
+                .get("nodeId");
         build(run);
         assertThat(count("semantic_node", run.id())).isEqualTo(nodes);
+        assertThat(count("semantic_edge", run.id())).isEqualTo(edges);
+        assertThat(count("assertion", run.id())).isEqualTo(assertions);
+        assertThat(count("business_scenario", run.id())).isEqualTo(scenarios);
+        assertThat(db.one(
+                                "SELECT node_id FROM business_scenario WHERE organization_id=? AND project_id=? AND analysis_run_id=?",
+                                org,
+                                project,
+                                run.id())
+                        .get("nodeId"))
+                .isEqualTo(scenarioNode);
         var canvas = queries.canvas(run.id(), GraphQueries.View.BUSINESS, 2, null, 0, "", false, 2);
         assertThat(Semantics.list(canvas.get("nodes")))
                 .noneMatch(n -> "TECHNICAL_GUARD".equals(Semantics.map(n).get("kind")));
@@ -190,15 +210,26 @@ class GraphPipelineIntegrationTest {
         var layouts = new CanvasLayoutController(db, tenant, access);
         var layout = new CanvasLayoutController.Layout(
                 Map.of("rule:minimum", new CanvasLayoutController.Position(17, 23)),
-                new CanvasLayoutController.Viewport(1, 2, 1.5));
+                new CanvasLayoutController.Viewport(1, 2, 1.5),
+                Set.of("rule:minimum"));
         transactions.executeWithoutResult(status -> layouts.put(before.id(), GraphQueries.View.BUSINESS, layout));
         assertThat(Semantics.map(
                         layouts.get(after.id(), GraphQueries.View.BUSINESS).get("positions")))
                 .containsKey("rule:minimum");
+        assertThat(layouts.get(after.id(), GraphQueries.View.BUSINESS))
+                .containsEntry("pinnedStableKeys", List.of("rule:minimum"));
+        transactions.executeWithoutResult(status -> layouts.put(
+                after.id(),
+                GraphQueries.View.BUSINESS,
+                new CanvasLayoutController.Layout(layout.positions(), layout.viewport())));
+        assertThat(layouts.get(after.id(), GraphQueries.View.BUSINESS)).containsEntry("pinnedStableKeys", List.of());
+        assertThat(layouts.get(before.id(), GraphQueries.View.BUSINESS))
+                .containsEntry("pinnedStableKeys", List.of("rule:minimum"));
         when(tenant.userId()).thenReturn(UUID.randomUUID());
         assertThat(Semantics.map(
                         layouts.get(after.id(), GraphQueries.View.BUSINESS).get("positions")))
                 .isEmpty();
+        assertThat(layouts.get(after.id(), GraphQueries.View.BUSINESS)).containsEntry("pinnedStableKeys", List.of());
     }
 
     @Test
@@ -322,6 +353,108 @@ class GraphPipelineIntegrationTest {
         var changes = transactions.execute(status -> queries.diff(project, before.id(), after.id()));
         assertThat(changes).anyMatch(change -> change.get("impactType").equals("THRESHOLD_CHANGED"));
         assertThat(queries.node(node(after, "rule:minimum"))).containsEntry("reviewStatus", "UNREVIEWED");
+    }
+
+    @Test
+    void detectsChangedRelationshipPropertiesConfidenceAndVerifiedEvidence() throws Exception {
+        var before = run(500, null);
+        var after = run(500, before.id());
+        for (var run : List.of(before, after)) {
+            boolean changed = run == after;
+            var relation = new Protocol.Fact(
+                    "1.0",
+                    "relationship",
+                    "RELATION",
+                    "relationship",
+                    new Protocol.Subject("RELATION", "relationship"),
+                    Map.of(
+                            "sourceKey", "endpoint:create",
+                            "targetKey", "method:create",
+                            "edgeKind", "CALLS",
+                            "roles", List.of(changed ? "ADMIN" : "USER")),
+                    "STATIC_EXACT",
+                    changed ? .7 : .9,
+                    List.of(evidence(run, changed ? 3 : 2)));
+            ingest(
+                    run,
+                    execution(run, "java-spring"),
+                    ndjson(List.of(
+                            fact(run, "ENDPOINT", "endpoint:create", "", Map.of()),
+                            fact(run, "METHOD", "method:create", "", Map.of()),
+                            relation)));
+            build(run);
+        }
+        var changes = transactions.execute(status -> queries.diff(project, before.id(), after.id()));
+        var relationships = changes.stream()
+                .filter(change -> change.get("subjectStableKey").toString().startsWith("edge:"))
+                .filter(change ->
+                        "CALLS".equals(Semantics.map(change.get("after")).get("kind")))
+                .toList();
+        assertThat(relationships)
+                .extracting(change -> change.get("impactType"))
+                .containsExactlyInAnyOrder("ROLE_CHANGED", "CONFIDENCE_CHANGED", "SOURCE_EVIDENCE_CHANGED");
+        for (var change : relationships) {
+            assertThat(Semantics.map(Semantics.map(change.get("before")).get("properties")))
+                    .containsEntry("roles", List.of("USER"));
+            assertThat(Semantics.map(Semantics.map(change.get("after")).get("properties")))
+                    .containsEntry("roles", List.of("ADMIN"));
+            assertThat(change).containsEntry("confidence", .7);
+            assertThat(Semantics.list(change.get("beforeEvidenceIds"))).isNotEmpty();
+            assertThat(Semantics.list(change.get("afterEvidenceIds"))).isNotEmpty();
+        }
+        var repeated = transactions.execute(status -> queries.diff(project, before.id(), after.id()));
+        assertThat(repeated).hasSameSizeAs(changes);
+    }
+
+    @Test
+    void identicalRelationshipEvidenceIgnoresRevisionLocalIds() throws Exception {
+        var before = analyzed(500, null);
+        var after = analyzed(500, before.id());
+        var changes = transactions.execute(status -> queries.diff(project, before.id(), after.id()));
+        assertThat(changes)
+                .noneMatch(change -> change.get("subjectStableKey").toString().startsWith("edge:"));
+    }
+
+    @Test
+    void messagePublicationEndsTheSynchronousBusinessScenario() throws Exception {
+        var run = run(500, null);
+        ingest(
+                run,
+                execution(run, "java-spring"),
+                ndjson(List.of(
+                        fact(run, "ENDPOINT", "endpoint:create", "", Map.of()),
+                        fact(run, "MESSAGE_PUBLICATION", "message:orders", "endpoint:create", Map.of()),
+                        fact(run, "DATA_WRITE", "write:consumer", "message:orders", Map.of()))));
+        build(run);
+        var scenario = db.one("SELECT model FROM business_scenario WHERE analysis_run_id=?", run.id());
+        var model = Semantics.map(scenario.get("model"));
+        assertThat(Semantics.map(model.get("membersByKind")))
+                .containsKeys("ENDPOINT", "MESSAGE_PUBLICATION")
+                .doesNotContainKey("DATABASE_WRITE");
+        assertThat(Semantics.strings(model.get("asyncBoundaries")))
+                .containsExactly(node(run, "message:orders").toString());
+        assertThat(model).containsEntry("truncated", false);
+    }
+
+    @Test
+    void exhaustedRelationshipBudgetReportsTruncationEvenWithDuplicateTargets() throws Exception {
+        var run = run(500, null);
+        var facts = new ArrayList<>(List.of(
+                fact(run, "ENDPOINT", "endpoint:create", "", Map.of()),
+                fact(run, "METHOD", "a:method", "endpoint:create", Map.of()),
+                fact(run, "DATA_WRITE", "z:write", "endpoint:create", Map.of())));
+        for (String kind : List.of("CALLS", "TRIGGERS", "PRECEDES", "ENTRY_TO", "VALIDATES"))
+            facts.add(fact(
+                    run,
+                    "RELATION",
+                    "relationship:" + kind,
+                    "",
+                    Map.of("sourceKey", "endpoint:create", "targetKey", "a:method", "edgeKind", kind)));
+        ingest(run, execution(run, "java-spring"), ndjson(facts));
+        build(run);
+        var scenario = db.one("SELECT model,truncated FROM business_scenario WHERE analysis_run_id=?", run.id());
+        assertThat(scenario).containsEntry("truncated", true);
+        assertThat(Semantics.map(scenario.get("model"))).containsEntry("truncated", true);
     }
 
     @Test

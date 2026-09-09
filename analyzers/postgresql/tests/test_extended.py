@@ -1,11 +1,10 @@
 import json
-import os
 from pathlib import Path
 import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared"))
-from test_support import run_cli, request, fixture_files, assert_evidence
+from test_support import run_cli, request, fixture_files, assert_evidence, symlink_or_skip
 
 
 class ExtendedPostgreSQLTests(unittest.TestCase):
@@ -91,17 +90,26 @@ class ExtendedPostgreSQLTests(unittest.TestCase):
         self.assertTrue(any(f["properties"].get("name") == "JOIN" for f in facts))
         assert_evidence(self, outputs, workspace)
 
-    def test_include_cycles_traversal_and_symlinks_are_bounded(self):
+    def test_include_cycles_and_traversal_are_bounded(self):
+        files = {"a.yaml": "databaseChangeLog:\n  - include: {file: b.yaml, relativeToChangelogFile: true}\n  - changeSet:\n      id: unsafe\n      author: test\n      changes:\n        - sqlFile: {path: ../outside.sql, relativeToChangelogFile: true}\n",
+                 "b.yaml": "databaseChangeLog:\n  - include: {file: a.yaml, relativeToChangelogFile: true}\n"}
+        result, outputs, workspace = self.analyze(files)
+        self.assertEqual(result.returncode, 10, outputs)
+        codes = {d["code"] for d in outputs["diagnostics.ndjson"]}
+        self.assertTrue({"INCLUDE_CYCLE", "INCLUDE_REJECTED"} <= codes)
+        self.assertFalse(any(f["kind"] == "TABLE" for f in outputs["facts.ndjson"]))
+        assert_evidence(self, outputs, workspace)
+
+    def test_symlink_includes_never_read_the_target(self):
         def prepare(workspace, root):
             external = root / "outside.sql"
             external.write_text("CREATE TABLE escaped(id int);")
-            os.symlink(external, workspace / "linked.sql")
-        files = {"a.yaml": "databaseChangeLog:\n  - include: {file: b.yaml, relativeToChangelogFile: true}\n  - changeSet:\n      id: unsafe\n      author: test\n      changes:\n        - sqlFile: {path: ../outside.sql, relativeToChangelogFile: true}\n        - sqlFile: {path: linked.sql, relativeToChangelogFile: true}\n",
-                 "b.yaml": "databaseChangeLog:\n  - include: {file: a.yaml, relativeToChangelogFile: true}\n"}
+            symlink_or_skip(external, workspace / "linked.sql")
+        files = {"a.yaml": "databaseChangeLog:\n  - changeSet:\n      id: unsafe\n      author: test\n      changes:\n        - sqlFile: {path: linked.sql, relativeToChangelogFile: true}\n"}
         result, outputs, workspace = self.analyze(files, prepare)
         self.assertEqual(result.returncode, 10, outputs)
         codes = {d["code"] for d in outputs["diagnostics.ndjson"]}
-        self.assertTrue({"INCLUDE_CYCLE", "INCLUDE_REJECTED", "SYMLINK_REJECTED"} <= codes)
+        self.assertTrue({"INCLUDE_REJECTED", "SYMLINK_REJECTED"} <= codes)
         self.assertFalse(any(f["kind"] == "TABLE" for f in outputs["facts.ndjson"]))
         assert_evidence(self, outputs, workspace)
 

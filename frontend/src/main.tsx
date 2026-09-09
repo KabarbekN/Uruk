@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ApiError } from './shared/api/client';
 import App from './app/App';
+import './shared/lib/theme';
 import '@xyflow/react/dist/style.css';
 import './app/styles.css';
 

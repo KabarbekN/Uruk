@@ -17,7 +17,7 @@ import { Badge, Button, ErrorState, Status } from '../../shared/ui';
 import { notify } from '../../shared/ui/notifications';
 
 export function AnalysisProgress({ run }: { run: AnalysisRun }) {
-  const { t, label, date } = useT();
+  const { t, label, date, locale } = useT();
   const terminal = isTerminal(run.status);
   const { events, connection } = useAnalysisEvents(run.id, !terminal);
   const [expanded, setExpanded] = useState(false);
@@ -80,10 +80,28 @@ export function AnalysisProgress({ run }: { run: AnalysisRun }) {
           className={`notice ${run.status === 'FAILED' ? 'negative' : 'warning'}`}
         >
           <AlertTriangle size={16} />
-          <span>
-            {t(run.status === 'FAILED' ? 'failedWarning' : 'partialWarning')}
-          </span>
-          <Link to={`/analyses/${run.id}/debug`}>{t('diagnostics')}</Link>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+            <span>
+              {run.status === 'PARTIALLY_SUCCEEDED'
+                ? locale === 'ru'
+                  ? 'Архитектурная карта построена успешно. Зафиксированы некритичные предупреждения парсера для части внешних библиотек.'
+                  : 'Architectural map built successfully. Minor parser warnings recorded for some external libraries.'
+                : t('failedWarning')}
+            </span>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '2px' }}>
+              {run.status === 'PARTIALLY_SUCCEEDED' && (
+                <Link
+                  to={`/analyses/${run.id}/canvas`}
+                  style={{ fontWeight: 600, color: 'var(--primary)' }}
+                >
+                  {t('openMap')} →
+                </Link>
+              )}
+              <Link to={`/analyses/${run.id}/debug`} style={{ opacity: 0.85, fontSize: '0.85em' }}>
+                {t('diagnostics')}
+              </Link>
+            </div>
+          </div>
         </div>
       )}
       {expanded && (

@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const production = process.env.PLAYWRIGHT_PRODUCTION === 'true';
+const localURL = `http://127.0.0.1:${production ? 5174 : 5173}`;
+const externalURL = process.env.PLAYWRIGHT_BASE_URL;
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 45000,
@@ -8,7 +12,7 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5173',
+    baseURL: externalURL || localURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     channel:
@@ -33,10 +37,12 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
-    command: 'pnpm dev',
-    url: 'http://127.0.0.1:5173',
-    reuseExistingServer: true,
-    timeout: 120000,
-  },
+  webServer: externalURL
+    ? undefined
+    : {
+        command: production ? 'pnpm preview --port 5174' : 'pnpm dev',
+        url: localURL,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120000,
+      },
 });

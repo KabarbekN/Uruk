@@ -74,6 +74,14 @@ class EnrichmentValidatorTest {
     }
 
     @Test
+    void rejectsClaimValuesThatAreNotExactJsonEncodings() throws Exception {
+        String response = draft("status", "PENDING", id.toString());
+        assertThatThrownBy(() -> validator.validate(response, bundle()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("valid JSON");
+    }
+
+    @Test
     void rejectsInventedRoleStatusAndForeignFact() throws Exception {
         for (String[] claim : List.of(
                 new String[] {"roles", "[\"SUPERADMIN\"]", id.toString()},

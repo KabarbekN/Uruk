@@ -138,7 +138,7 @@ public final class SpringAnalyzerCli {
                             null,
                             null,
                             Map.of("capability", capability)));
-                } else if (!limitations.isEmpty() || model.failed > 0) {
+                } else if (!limitations.isEmpty() || model.failed > 0 || model.partialCoverage) {
                     partial.add(capability);
                     status = "PARTIAL";
                 } else {
@@ -147,7 +147,7 @@ public final class SpringAnalyzerCli {
                 }
                 coverage.add(Map.of("name", capability, "status", status, "limitations", limitations));
             }
-            int exit = partial.isEmpty() && failed.isEmpty() && model.failed == 0 ? 0 : 10;
+            int exit = partial.isEmpty() && failed.isEmpty() && model.failed == 0 && !model.partialCoverage ? 0 : 10;
             Map<String, byte[]> files = outputFiles(
                     model, start, completed, partial, failed, exit == 0 ? "SUCCEEDED" : "PARTIAL", coverage, request);
             long bytes = files.values().stream().mapToLong(b -> b.length).sum();

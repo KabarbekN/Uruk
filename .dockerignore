@@ -1,5 +1,6 @@
 .git
 .cache
+.pnpm-store
 .runtime
 **/node_modules
 **/target

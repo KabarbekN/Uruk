@@ -4,3 +4,11 @@
 **/.test-output
 **/target
 .git
+.pnpm-store
+.runtime
+.cache
+output
+frontend/dist
+frontend/output
+frontend/test-results
+frontend/playwright-report

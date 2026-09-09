@@ -1,0 +1,71 @@
+name: Performance acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Workload to run on its own runner
+        required: true
+        default: canvas
+        type: choice
+        options: [canvas, ingestion, both]
+permissions:
+  contents: read
+jobs:
+  canvas:
+    if: inputs.suite == 'canvas' || inputs.suite == 'both'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.27.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: pnpm build
+        working-directory: frontend
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Production Canvas 1k, 2k visible and 10k progressive gates
+        run: pnpm exec playwright test e2e/large-graph.spec.ts e2e/renderer-stress.spec.ts e2e/progressive-graph.spec.ts
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_PRODUCTION: 'true'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: canvas-performance
+          path: |
+            frontend/output/playwright
+            frontend/playwright-report
+            frontend/test-results
+  ingestion:
+    if: inputs.suite == 'ingestion' || inputs.suite == 'both'
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Cache benchmark PostgreSQL before measurement
+        run: docker pull postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+      - run: chmod +x mvnw
+      - name: Compile and resolve dependencies before measurement
+        run: ./mvnw -B -ntp -pl backend/platform -am test-compile
+      - name: One million facts with bounded heap and real evidence verification
+        run: ./mvnw -B -ntp -pl backend/platform -am -Dtest=StreamingIngestionBenchmark -Dsurefire.failIfNoSpecifiedTests=false '-DargLine=-Xmx512m -XX:ActiveProcessorCount=2' -DforkCount=1 -DreuseForks=false -Djunit.jupiter.execution.parallel.enabled=false test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ingestion-performance
+          path: |
+            backend/platform/target/output/ingestion-benchmark
+            backend/platform/target/surefire-reports

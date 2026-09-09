@@ -36,6 +36,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public class SpringAiGateway implements EnrichmentGateway {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(SpringAiGateway.class);
     private final AiConfiguration config;
     private final ThreadPoolExecutor executor = new ThreadPoolExecutor(
             0,
@@ -45,6 +46,8 @@ public class SpringAiGateway implements EnrichmentGateway {
             new SynchronousQueue<>(),
             Thread.ofPlatform().name("semantic-ai-", 0).daemon().factory());
     private volatile OpenAiChatModel model;
+    private volatile String cachedModelName;
+    private volatile String cachedBaseUrl;
     private int failures;
     private long openUntil;
 
@@ -65,7 +68,7 @@ public class SpringAiGateway implements EnrichmentGateway {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "AI concurrency limit reached");
         }
         try {
-            Reply reply = future.get(25, TimeUnit.SECONDS);
+            Reply reply = future.get(300, TimeUnit.SECONDS);
             synchronized (this) {
                 failures = 0;
                 openUntil = 0;
@@ -98,25 +101,26 @@ public class SpringAiGateway implements EnrichmentGateway {
                         List.of(new SystemMessage(EnrichmentValidator.PROMPT), new UserMessage(bundle.json()))));
                 if (response == null
                         || response.getResult() == null
-                        || response.getResult().getOutput() == null
-                        || !response.getResult().getOutput().getToolCalls().isEmpty())
-                    throw new IllegalArgumentException("Invalid model result");
-                var usage = response.getMetadata().getUsage();
-                boolean knownUsage = usage != null && !(usage instanceof EmptyUsage);
-                return new Reply(
-                        response.getResult().getOutput().getText(),
-                        knownUsage ? nonnegative(usage.getPromptTokens()) : null,
-                        knownUsage ? nonnegative(usage.getCompletionTokens()) : null);
+                        || response.getResult().getOutput() == null)
+                    throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Malformed AI response");
+                var metadata = response.getMetadata();
+                var usage = metadata != null ? metadata.getUsage() : null;
+                boolean empty = usage == null || usage instanceof EmptyUsage;
+                Integer input = empty || usage.getPromptTokens() == null
+                        ? null
+                        : usage.getPromptTokens().intValue();
+                Integer output = empty || usage.getCompletionTokens() == null
+                        ? null
+                        : usage.getCompletionTokens().intValue();
+                return new Reply(response.getResult().getOutput().getText(), input, output);
             } catch (RuntimeException ex) {
-                if (attempt == 1 || !transientFailure(ex)) throw ex;
-                Thread.sleep(200);
+                if (attempt == 0 && transientFailure(ex)) continue;
+                if (ex instanceof ResponseStatusException status) throw status;
+                log.error("AI gateway request execution failed: {}", ex.getMessage(), ex);
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI request failed: " + ex.getMessage(), ex);
             }
         }
-        throw new IllegalStateException("AI attempt limit exhausted");
-    }
-
-    private static Integer nonnegative(Integer value) {
-        return value != null && value >= 0 ? value : null;
+        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI retry failed");
     }
 
     private static boolean transientFailure(RuntimeException error) {
@@ -137,13 +141,20 @@ public class SpringAiGateway implements EnrichmentGateway {
     }
 
     private synchronized OpenAiChatModel model() {
-        if (model != null) return model;
+        String curModel = config.model();
+        String curBase = config.baseUrl();
+        if (curBase.endsWith("/v1")) {
+            curBase = curBase.substring(0, curBase.length() - 3);
+        }
+        if (model != null && curModel.equals(cachedModelName) && curBase.equals(cachedBaseUrl)) {
+            return model;
+        }
         var client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
+                .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
         var factory = new JdkClientHttpRequestFactory(client);
-        factory.setReadTimeout(Duration.ofSeconds(8));
+        factory.setReadTimeout(Duration.ofSeconds(90));
         var rest = RestClient.builder().requestFactory(factory).requestInterceptor((request, body, execution) -> {
             ClientHttpResponse response = execution.execute(request, body);
             try {
@@ -159,7 +170,7 @@ public class SpringAiGateway implements EnrichmentGateway {
             }
         });
         var api = OpenAiApi.builder()
-                .baseUrl(config.baseUrl())
+                .baseUrl(curBase)
                 .apiKey(config.apiKey())
                 .restClientBuilder(rest)
                 .build();
@@ -174,7 +185,7 @@ public class SpringAiGateway implements EnrichmentGateway {
         model = OpenAiChatModel.builder()
                 .openAiApi(api)
                 .defaultOptions(OpenAiChatOptions.builder()
-                        .model(config.model())
+                        .model(curModel)
                         .temperature(0.0)
                         .maxTokens(2048)
                         .responseFormat(format)
@@ -183,6 +194,8 @@ public class SpringAiGateway implements EnrichmentGateway {
                         .build())
                 .retryTemplate(RetryTemplate.builder().maxAttempts(1).build())
                 .build();
+        cachedModelName = curModel;
+        cachedBaseUrl = curBase;
         return model;
     }
 

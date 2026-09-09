@@ -10,7 +10,10 @@ const nodes = createScalableGraph().nodes;
 describe('test-only layout API contract', () => {
   it('accepts exactly 2000 known positions and rejects 2001 atomically', () => {
     const server = createLayoutServer(nodes);
-    const valid = overviewLayout(nodes.slice(0, 2000));
+    const valid = {
+      ...overviewLayout(nodes.slice(0, 2000)),
+      pinnedStableKeys: [],
+    };
     expect(server.put(valid).status).toBe(200);
     expect(server.put(overviewLayout(nodes.slice(0, 2001))).status).toBe(400);
     expect(server.get()).toEqual(valid);
@@ -21,7 +24,10 @@ describe('test-only layout API contract', () => {
       nodes,
       overviewLayout(nodes.slice(0, 500)),
     );
-    const next = overviewLayout(nodes.slice(500, 1000));
+    const next = {
+      ...overviewLayout(nodes.slice(500, 1000)),
+      pinnedStableKeys: [],
+    };
     next.viewport = { x: -12, y: 84, zoom: 0.4 };
     expect(server.put(next)).toEqual({ status: 200, json: next });
     expect(server.get()).toEqual(next);
@@ -44,10 +50,34 @@ describe('test-only layout API contract', () => {
   ])(
     'rejects malformed or cross-run payloads without deleting the previous layout',
     (body) => {
-      const initial = overviewLayout(nodes.slice(0, 1));
+      const initial = {
+        ...overviewLayout(nodes.slice(0, 1)),
+        pinnedStableKeys: [],
+      };
       const server = createLayoutServer(nodes, initial);
       expect(server.put(body).status).toBe(400);
       expect(server.get()).toEqual(initial);
     },
   );
+
+  it('persists pins, rejects pins without a position, and lets older clients unpin', () => {
+    const server = createLayoutServer(nodes);
+    const layout = overviewLayout(nodes.slice(0, 1));
+    expect(
+      server.put({ ...layout, pinnedStableKeys: [nodes[0]!.stableKey] }).status,
+    ).toBe(200);
+    expect(server.get().pinnedStableKeys).toEqual([nodes[0]!.stableKey]);
+    expect(
+      server.put({ ...layout, pinnedStableKeys: [nodes[1]!.stableKey] }).status,
+    ).toBe(400);
+    expect(
+      server.put({
+        ...layout,
+        pinnedStableKeys: [nodes[0]!.stableKey, nodes[0]!.stableKey],
+      }).status,
+    ).toBe(400);
+    expect(server.get().pinnedStableKeys).toEqual([nodes[0]!.stableKey]);
+    expect(server.put(layout).status).toBe(200);
+    expect(server.get().pinnedStableKeys).toEqual([]);
+  });
 });

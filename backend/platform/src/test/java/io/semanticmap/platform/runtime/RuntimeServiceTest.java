@@ -1,6 +1,7 @@
 package io.semanticmap.platform.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -12,6 +13,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.web.server.ResponseStatusException;
 
 class RuntimeServiceTest {
     private final Db db = mock(Db.class);
@@ -19,8 +23,40 @@ class RuntimeServiceTest {
             project = UUID.randomUUID(),
             run = UUID.randomUUID(),
             node = UUID.randomUUID();
-    private final RuntimeService service =
-            new RuntimeService(db, mock(TenantContext.class), mock(Access.class), mock(Audit.class));
+    private final TenantContext tenant = mock(TenantContext.class);
+    private final Access access = mock(Access.class);
+    private final Audit audit = mock(Audit.class);
+    private final RuntimeService service = new RuntimeService(db, tenant, access, audit);
+
+    @ParameterizedTest
+    @ValueSource(strings = {"QUEUED", "RUNNING", "FAILED", "CANCELLED"})
+    void rejectsImportUntilLockedAnalysisHasCompleted(String status) {
+        when(tenant.orgId()).thenReturn(org);
+        when(access.run(run)).thenReturn(Map.of("projectId", project, "status", "SUCCEEDED"));
+        when(db.one(contains("FOR UPDATE"), eq(run), eq(org), eq(project)))
+                .thenReturn(Map.of("id", run, "status", status));
+        assertThatThrownBy(() -> service.ingest(run, List.of()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("409")
+                .hasMessageContaining("completed analysis");
+        verify(db).one(contains("FOR UPDATE"), eq(run), eq(org), eq(project));
+        verifyNoMoreInteractions(db);
+        verifyNoInteractions(audit);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SUCCEEDED", "PARTIALLY_SUCCEEDED"})
+    void completedAnalysisAcceptsImport(String status) {
+        when(tenant.orgId()).thenReturn(org);
+        when(access.run(run)).thenReturn(Map.of("projectId", project));
+        when(db.one(contains("FOR UPDATE"), eq(run), eq(org), eq(project)))
+                .thenReturn(Map.of("id", run, "status", status));
+        when(db.one(contains("count(*) AS total FROM runtime_span"), eq(org), eq(project), eq(run)))
+                .thenReturn(Map.of("total", 0));
+        assertThat(service.ingest(run, List.of()))
+                .containsEntry("status", "INGESTED")
+                .containsEntry("acceptedSpans", 0);
+    }
 
     @Test
     void missingSemanticAttributesNeverMatchesFromNameOrDatabaseAttributes() {

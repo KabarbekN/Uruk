@@ -65,7 +65,7 @@ public class RepositoryPolicy {
     }
 
     public void validateCredentials(String reference) {
-        if (reference != null && !reference.matches("[A-Za-z0-9_-]{1,100}"))
+        if (reference != null && !reference.matches("[A-Za-z0-9_.-]{1,512}"))
             throw new IllegalArgumentException("INVALID_CREDENTIAL_REFERENCE");
     }
 

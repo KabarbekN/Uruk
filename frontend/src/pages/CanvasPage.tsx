@@ -2,25 +2,31 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useShallow } from 'zustand/react/shallow';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   Braces,
+  BookOpenText,
   Database,
   Gauge,
   GitFork,
+  LayoutDashboard,
+  Layers,
   List,
   Network,
   RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Workflow,
   X,
 } from 'lucide-react';
 import { api } from '../shared/api/client';
 import type { CanvasView } from '../shared/api/types';
-import { useRun } from '../shared/api/queries';
+import { isTerminal, useRun } from '../shared/api/queries';
 import { useDebounced } from '../shared/hooks/useDebounced';
 import { useT, type TranslationKey } from '../shared/lib/i18n';
+import { ControllerExplorer } from '../features/semantic-canvas/ControllerExplorer';
+import { AnalysisOverview } from '../features/semantic-canvas/AnalysisOverview';
 import {
   Badge,
   Button,
@@ -44,6 +50,7 @@ import {
 import { GraphSurface } from '../features/semantic-canvas/GraphSurface';
 import { NodeList } from '../features/semantic-canvas/NodeList';
 import { EvidenceDrawer } from '../features/evidence-drawer/EvidenceDrawer';
+import { EndpointStories } from '../features/endpoint-stories/EndpointStories';
 
 const views = [
   { value: 'BUSINESS', label: 'business', icon: Workflow },
@@ -97,7 +104,9 @@ export default function CanvasPage() {
   );
   const { select, setRoot, setSearch } = state;
   const [showFilters, setShowFilters] = useState(false);
-  const [list, setList] = useState(false);
+  const [displayMode, setDisplayMode] = useState<
+    'stories' | 'overview' | 'controllers' | 'graph' | 'list'
+  >('stories');
   const search = useDebounced(state.search);
   useEffect(() => {
     select(null);
@@ -152,6 +161,23 @@ export default function CanvasPage() {
       ),
     };
   }, [projection.data, state.filters]);
+  const graphProjection = useMemo(() => {
+    if (!visible || visible.edges.length === 0) return visible;
+    const connectedIds = new Set(
+      visible.edges.flatMap((edge) => [edge.source, edge.target]),
+    );
+    const isolated = visible.nodes.length - connectedIds.size;
+    if (visible.nodes.length < 80 || isolated <= visible.nodes.length / 3)
+      return visible;
+    return {
+      ...visible,
+      nodes: visible.nodes.filter((node) => connectedIds.has(node.id)),
+    };
+  }, [visible]);
+  const isolatedHidden =
+    visible && graphProjection
+      ? visible.nodes.length - graphProjection.nodes.length
+      : 0;
   const filterCount = Object.values(state.filters).filter(Boolean).length;
   if (run.isPending) return <Loading />;
   if (run.isError)
@@ -174,63 +200,95 @@ export default function CanvasPage() {
         ))}
       </div>
       <div className="map-toolbar">
-        <SearchInput
-          label={t('searchMap')}
-          value={state.search}
-          onChange={state.setSearch}
-        />
-        <label className="inline-field">
-          <span>{t('depth')}</span>
-          <input
-            type="number"
-            min={1}
-            max={5}
-            value={state.depth}
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              if (Number.isInteger(value) && value >= 1 && value <= 5)
-                state.setDepth(value);
-            }}
+        {(displayMode === 'graph' || displayMode === 'list') && (
+          <SearchInput
+            label={t('searchMap')}
+            value={state.search}
+            onChange={state.setSearch}
           />
-        </label>
-        <label className="inline-field detail-field">
-          <span>{t('detailLevel')}</span>
-          <select
-            aria-label={t('detailLevel')}
-            value={state.detail}
-            onChange={(event) => state.setDetail(Number(event.target.value))}
+        )}
+        {(displayMode === 'graph' || displayMode === 'list') && (
+          <label
+            className="inline-field"
+            title="Глубина связей: количество уровней вызовов вокруг узла (1 — прямые связи, 2-3 — цепочка вызовов до БД)"
           >
-            {(
-              ['contexts', 'scenarios', 'rulesEffects', 'codeSql'] as const
-            ).map((key, index) => (
-              <option value={index} key={key}>
-                {t(key)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Button
-          aria-expanded={showFilters}
-          aria-pressed={filterCount > 0}
-          onClick={() => setShowFilters(!showFilters)}
-        >
-          <SlidersHorizontal size={15} />
-          {t('filters')}
-          {filterCount > 0 && <Badge>{filterCount}</Badge>}
-        </Button>
+            <span>Глубина связей</span>
+            <input
+              type="number"
+              min={1}
+              max={5}
+              value={state.depth}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                if (Number.isInteger(value) && value >= 1 && value <= 5)
+                  state.setDepth(value);
+              }}
+            />
+          </label>
+        )}
+        {(displayMode === 'graph' || displayMode === 'list') && (
+          <label
+            className="inline-field detail-field"
+            title="Уровень детализации: от контекстов и сценариев до правил и SQL-запросов"
+          >
+            <span>Детализация</span>
+            <select
+              aria-label="Детализация"
+              value={state.detail}
+              onChange={(event) => state.setDetail(Number(event.target.value))}
+            >
+              {(
+                ['contexts', 'scenarios', 'rulesEffects', 'codeSql'] as const
+              ).map((key, index) => (
+                <option value={index} key={key}>
+                  {t(key)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {(displayMode === 'graph' || displayMode === 'list') && (
+          <Button
+            aria-expanded={showFilters}
+            aria-pressed={filterCount > 0}
+            onClick={() => setShowFilters(!showFilters)}
+          >
+            <SlidersHorizontal size={15} />
+            {t('filters')}
+            {filterCount > 0 && <Badge>{filterCount}</Badge>}
+          </Button>
+        )}
         <div className="toolbar-spacer" />
         <div className="segmented">
           <IconButton
+            icon={BookOpenText}
+            label="Endpoint Stories"
+            aria-pressed={displayMode === 'stories'}
+            onClick={() => setDisplayMode('stories')}
+          />
+          <IconButton
+            icon={LayoutDashboard}
+            label="Что обнаружено"
+            aria-pressed={displayMode === 'overview'}
+            onClick={() => setDisplayMode('overview')}
+          />
+          <IconButton
+            icon={Layers}
+            label="Контроллеры"
+            aria-pressed={displayMode === 'controllers'}
+            onClick={() => setDisplayMode('controllers')}
+          />
+          <IconButton
             icon={Network}
             label={t('graphView')}
-            aria-pressed={!list}
-            onClick={() => setList(false)}
+            aria-pressed={displayMode === 'graph'}
+            onClick={() => setDisplayMode('graph')}
           />
           <IconButton
             icon={List}
             label={t('listView')}
-            aria-pressed={list}
-            onClick={() => setList(true)}
+            aria-pressed={displayMode === 'list'}
+            onClick={() => setDisplayMode('list')}
           />
         </div>
         <IconButton
@@ -239,8 +297,29 @@ export default function CanvasPage() {
           disabled={projection.isFetching}
           onClick={() => void projection.refetch()}
         />
+        <Link
+          to={`/analyses/${analysisRunId}/canvas-overlay`}
+          className="btn btn-secondary small"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '5px',
+            textDecoration: 'none',
+            fontSize: '12px',
+            fontWeight: 600,
+            background: 'var(--primary-soft, #e6fcf5)',
+            color: 'var(--primary, #0e7466)',
+            border: '1px solid rgba(14, 116, 102, 0.25)',
+            padding: '4px 10px',
+            borderRadius: '6px',
+          }}
+          title="Открыть в полноэкранном режиме с плавающими панелями (Overlay)"
+        >
+          <Sparkles size={13} />
+          <span>Холст-Оверлей (Canvas Pro)</span>
+        </Link>
       </div>
-      {showFilters && (
+      {showFilters && (displayMode === 'graph' || displayMode === 'list') && (
         <div className="filter-panel">
           <div className="filter-range">
             <Field
@@ -338,7 +417,53 @@ export default function CanvasPage() {
       )}
       <div className="canvas-body">
         <div className="canvas-main">
-          {projection.isPending ? (
+          {displayMode === 'stories' ? (
+            <EndpointStories
+              runId={analysisRunId}
+              active={!run.data || !isTerminal(run.data.status)}
+              selectedEndpointId={
+                state.selected?.kind === 'nodes' ? state.selected.id : null
+              }
+              onSelectEndpoint={(endpoint) => {
+                state.select({
+                  kind: 'nodes',
+                  id: endpoint.id,
+                  label: endpoint.label,
+                });
+              }}
+            />
+          ) : displayMode === 'overview' && projection.isPending ? (
+            <Loading />
+          ) : displayMode === 'overview' && projection.isError ? (
+            <ErrorState
+              error={projection.error}
+              retry={() => void projection.refetch()}
+            />
+          ) : displayMode === 'overview' && visible ? (
+            <AnalysisOverview
+              projection={visible}
+              onSelect={(node) =>
+                state.select({ kind: 'nodes', id: node.id, label: node.label })
+              }
+              onShowControllers={() => setDisplayMode('controllers')}
+              onShowGraph={() => setDisplayMode('graph')}
+            />
+          ) : displayMode === 'controllers' ? (
+            <ControllerExplorer
+              runId={analysisRunId}
+              view={state.view}
+              selectedEndpointId={
+                state.selected?.kind === 'nodes' ? state.selected.id : null
+              }
+              onSelectEndpoint={(endpoint) => {
+                state.select({
+                  kind: 'nodes',
+                  id: endpoint.id,
+                  label: endpoint.label,
+                });
+              }}
+            />
+          ) : projection.isPending ? (
             <Loading />
           ) : projection.isError ? (
             <ErrorState
@@ -351,7 +476,27 @@ export default function CanvasPage() {
               title={t('emptyMap')}
               detail={t('emptyMapDetail')}
             />
-          ) : list && visible ? (
+          ) : displayMode === 'graph' &&
+            graphProjection &&
+            graphProjection.nodes.length >= 20 &&
+            graphProjection.edges.length === 0 ? (
+            <EmptyState
+              icon={GitFork}
+              title={t('disconnectedMap')}
+              detail={t('disconnectedMapDetail')}
+            >
+              <div className="button-row">
+                {state.view !== 'DEVELOPER' && (
+                  <Button onClick={() => state.setView('DEVELOPER')}>
+                    <Braces size={15} /> {t('openDeveloperGraph')}
+                  </Button>
+                )}
+                <Button variant="ghost" onClick={() => setDisplayMode('list')}>
+                  <List size={15} /> {t('openNodeList')}
+                </Button>
+              </div>
+            </EmptyState>
+          ) : displayMode === 'list' && visible ? (
             <NodeList
               nodes={visible.nodes}
               selectedId={state.selected?.id}
@@ -367,12 +512,15 @@ export default function CanvasPage() {
               retry={() => void savedLayout.refetch()}
             />
           ) : (
-            visible && (
-              <ReactFlowProvider key={`${analysisRunId}:${state.view}`}>
+            graphProjection && (
+              <ReactFlowProvider
+                key={`${analysisRunId}:${state.view}:${state.rootNodeId ?? 'all'}`}
+              >
                 <GraphSurface
                   runId={analysisRunId}
                   view={state.view}
-                  projection={visible}
+                  rootNodeId={state.rootNodeId}
+                  projection={graphProjection}
                   savedLayout={savedLayout.data ?? null}
                 />
               </ReactFlowProvider>
@@ -380,13 +528,23 @@ export default function CanvasPage() {
           )}
           <footer className="map-status">
             <span>
-              <strong>{visible?.nodes.length ?? '\u2014'}</strong> {t('nodes')}
+              <strong>
+                {displayMode === 'graph'
+                  ? (graphProjection?.nodes.length ?? '\u2014')
+                  : (visible?.nodes.length ?? '\u2014')}
+              </strong>{' '}
+              {t('nodes')}
               <span className="status-divider">/</span>
               <strong>{visible?.edges.length ?? '\u2014'}</strong>{' '}
               {t('relationships')}
             </span>
             {projection.data?.truncated && (
               <span className="warning-text">{t('truncated')}</span>
+            )}
+            {displayMode === 'graph' && isolatedHidden > 0 && (
+              <span className="muted">
+                {isolatedHidden} {t('isolatedHidden')}
+              </span>
             )}
             <span className="muted">
               {t('total')}: {projection.data?.totalNodes ?? '\u2014'}
@@ -403,6 +561,7 @@ export default function CanvasPage() {
               state.setRoot(id);
               state.setDepth(Math.min(5, state.depth + 1));
               state.select(null);
+              setDisplayMode('graph');
             }}
           />
         )}

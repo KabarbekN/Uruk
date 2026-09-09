@@ -31,6 +31,8 @@ type CanvasState = {
   drawerWidth: number;
   layouts: Record<string, CanvasLayout>;
   pins: Record<string, string[]>;
+  useAiLabels: boolean;
+  toggleAiLabels: () => void;
   setView: (view: CanvasView) => void;
   setSearch: (search: string) => void;
   setDepth: (depth: number) => void;
@@ -41,6 +43,7 @@ type CanvasState = {
   select: (selected: Selection | null) => void;
   setDrawerWidth: (width: number) => void;
   rememberLayout: (scope: string, layout: CanvasLayout) => void;
+  restorePins: (scope: string, stableKeys: string[]) => void;
   togglePin: (scope: string, id: string) => void;
 };
 export const useCanvasStore = create<CanvasState>((set) => ({
@@ -54,6 +57,8 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   drawerWidth: 500,
   layouts: {},
   pins: {},
+  useAiLabels: true,
+  toggleAiLabels: () => set((state) => ({ useAiLabels: !state.useAiLabels })),
   setView: (view) => set({ view, selected: null, rootNodeId: undefined }),
   setSearch: (search) => set({ search }),
   setDepth: (depth) => set({ depth }),
@@ -65,6 +70,12 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   setDrawerWidth: (drawerWidth) => set({ drawerWidth }),
   rememberLayout: (scope, layout) =>
     set((state) => ({ layouts: { ...state.layouts, [scope]: layout } })),
+  restorePins: (scope, stableKeys) =>
+    set((state) =>
+      state.pins[scope] === undefined
+        ? { pins: { ...state.pins, [scope]: [...stableKeys] } }
+        : state,
+    ),
   togglePin: (scope, id) =>
     set((state) => {
       const pins = state.pins[scope] ?? [];

@@ -7,10 +7,20 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import unittest
 from jsonschema import Draft202012Validator
 
 SHARED = Path(__file__).resolve().parent
 SCHEMAS = SHARED.parents[1] / "analyzer-contract/schemas/v1"
+
+
+def symlink_or_skip(target, link, target_is_directory=False):
+    try:
+        os.symlink(target, link, target_is_directory=target_is_directory)
+    except OSError as error:
+        if os.name == "nt" and getattr(error, "winerror", None) == 1314:
+            raise unittest.SkipTest("Windows account lacks the symlink creation privilege") from error
+        raise
 
 
 def request(root=".", capabilities=None):

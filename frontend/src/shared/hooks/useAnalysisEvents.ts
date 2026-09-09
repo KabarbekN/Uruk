@@ -30,6 +30,7 @@ export function useAnalysisEvents(runId: string, active: boolean) {
       void client.invalidateQueries({ queryKey: ['run', runId] });
       void client.invalidateQueries({ queryKey: ['runs'] });
       void client.invalidateQueries({ queryKey: ['canvas', runId] });
+      void client.invalidateQueries({ queryKey: ['controllers', runId] });
     };
     const connect = async () => {
       try {

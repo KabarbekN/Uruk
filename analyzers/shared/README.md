@@ -99,6 +99,12 @@ unresolved behavior and skipped relevant source prevent a fully successful run.
 Capability coverage is conservative: a file-level gap marks requested supported
 capabilities partial. Fact order and IDs are deterministic; run timestamps are not.
 
+Repeated relations retain distinct source locations on one stable fact. Duplicate
+locations do not consume the output budget twice. Each relation keeps at most
+32 locations to match ingestion limits; additional locations emit
+`RELATION_EVIDENCE_LIMIT` and make coverage partial. Evidence growth is counted
+against the output byte budget.
+
 Exit codes: `0` complete, `10` partial, `20` invalid request, `30` no supported
 source, `40` reserved analysis failure, `50` resource/path policy violation, and
 `60` internal failure. An unwritable/unsafe output path or a budget too small for
@@ -122,6 +128,9 @@ policy. `.semanticmapignore` at the workspace root follows gitignore semantics,
 including negation; an excluded directory is not traversed. Symlinks/junctions
 are rejected, never followed. Source must be regular UTF-8 text without NUL bytes.
 `changedFiles` requests receive a full component analysis and an explicit notice.
+Requests enabling build-script execution or dependency resolution are rejected
+with `UNSUPPORTED_EXECUTION_POLICY` (exit 50), matching the Java analyzer's
+SAFE_STATIC behavior. These requests are never silently reported as completed.
 
 ## Decisions and known limits
 

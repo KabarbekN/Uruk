@@ -2,7 +2,6 @@ package io.semanticmap.analyzer.java;
 
 import io.semanticmap.contract.Protocol;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import org.openrewrite.InMemoryExecutionContext;
@@ -64,38 +63,11 @@ final class AnalysisEngine {
             throw new AnalyzerFailure(30, "UNSUPPORTED_LANGUAGE", "Java is not requested");
         for (String changed : request.changedFiles()) safeRelative(root, changed);
         AnalysisModel model = new AnalysisModel();
-        Map<String, String> sources = new TreeMap<>();
-        try (var paths = Files.walk(component)) {
-            long totalBytes = 0;
-            for (Path path : paths.filter(p -> p.getFileName().toString().endsWith(".java"))
-                    .sorted()
-                    .toList()) {
-                String relative = root.relativize(path).toString().replace('\\', '/');
-                if (excluded(relative, request.policy())) continue;
-                model.discovered++;
-                if (Files.isSymbolicLink(path) || !path.toRealPath().startsWith(root)) {
-                    model.failed++;
-                    model.diagnostics.add(new Protocol.Diagnostic(
-                            "SOURCE_PATH_ESCAPE",
-                            "ERROR",
-                            "Source link is outside the allowed workspace",
-                            relative,
-                            null,
-                            Map.of()));
-                    continue;
-                }
-                if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) continue;
-                long length = Files.size(path);
-                totalBytes += length;
-                if (length > 2_097_152 || totalBytes > 67_108_864 || model.discovered > 5000)
-                    throw new AnalyzerFailure(
-                            50,
-                            "SOURCE_LIMIT",
-                            "Static source input limit exceeded (2 MiB/file, 64 MiB total, 5000 files)");
-                sources.put(relative, Files.readString(path, StandardCharsets.UTF_8));
-            }
+        Map<String, String> sources = new SourceDiscovery().read(root, component, request.policy(), model);
+        if (sources.isEmpty()) {
+            if (model.failed > 0) return model;
+            throw new AnalyzerFailure(30, "NO_JAVA_SOURCES", "No supported Java source files found");
         }
-        if (sources.isEmpty()) throw new AnalyzerFailure(30, "NO_JAVA_SOURCES", "No supported Java source files found");
         List<Parser.Input> inputs = sources.entrySet().stream()
                 .map(e -> Parser.Input.fromString(root.resolve(e.getKey()), e.getValue()))
                 .toList();
@@ -175,16 +147,6 @@ final class AnalysisEngine {
         Path resolved = root.resolve(normalized.isEmpty() ? "." : normalized).normalize();
         if (!resolved.startsWith(root)) throw new AnalyzerFailure(50, "PATH_ESCAPE", "Path escapes the workspace");
         return resolved;
-    }
-
-    private static boolean excluded(String path, Protocol.Policy policy) {
-        List<String> parts = Arrays.asList(path.split("/"));
-        if (parts.stream().anyMatch(p -> Set.of(".git", ".gradle", ".idea", "node_modules", ".mvn")
-                .contains(p))) return true;
-        if (!policy.includeTests() && (parts.contains("test") || parts.contains("tests"))) return true;
-        return !policy.includeGeneratedSources()
-                && parts.stream().anyMatch(p -> Set.of("target", "build", "generated", "generated-sources")
-                        .contains(p));
     }
 }
 

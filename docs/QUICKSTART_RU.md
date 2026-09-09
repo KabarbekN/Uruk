@@ -3,6 +3,14 @@
 Приложение: [http://127.0.0.1:8088](http://127.0.0.1:8088).
 Требуется запущенный Docker Desktop в режиме Linux containers.
 
+Если Docker установлен, но не запускается, проверьте `wsl --status` и
+`wsl --version`. Для WSL2 нужен компонент Windows **Virtual Machine Platform**;
+его включают в PowerShell от администратора командой
+`wsl --install --no-distribution`. Если Windows запросила перезагрузку,
+выполните её перед запуском Docker. Отдельная Ubuntu для этого проекта не нужна.
+Справка: [Docker Desktop и WSL2](https://docs.docker.com/desktop/features/wsl/),
+[установка WSL](https://learn.microsoft.com/en-us/windows/wsl/install).
+
 ## Запуск
 
 В PowerShell из папки проекта:
@@ -16,6 +24,16 @@
 ```powershell
 .\scripts\dev.ps1 -Build
 ```
+
+Чтобы скрипт также запустил установленный Docker Desktop:
+
+```powershell
+.\scripts\dev.ps1 -StartDocker -Build
+```
+
+Поддерживается установка Docker как для всех пользователей, так и в текущем
+профиле. Java-анализатор собирается из исходников внутри Docker; предварительная
+сборка JAR на хосте не требуется.
 
 Скрипт задаёт путь к артефактам и запускает PostgreSQL, API, worker и интерфейс.
 Java-сборка использует Maven. Gradle не требуется. AI по умолчанию выключен;
@@ -74,3 +92,20 @@ runner. Kubernetes adapter и манифесты есть, но живой кл�
 Точные выполненные проверки и ограничения: [VERIFICATION.md](VERIFICATION.md).
 Этапы реализации: [IMPLEMENTATION.md](IMPLEMENTATION.md).
 Правила безопасности: [SECURITY.md](../SECURITY.md).
+
+## Проверка После Сборки
+
+Для полной локальной проверки нужны Java 21 (`JAVA_HOME`), Node 22+, pnpm и
+Chrome либо установленный Playwright Chromium. Из корня проекта:
+
+```powershell
+.\scripts\verify.ps1 -Build -Performance
+```
+
+Команда собирает и запускает Compose, выполняет Maven verify с PostgreSQL
+Testcontainers, frontend lint/test/build, браузерные проверки конечного образа,
+parser-тесты внутри OCI и реальный сценарий Spring/NestJS. При первой ошибке
+она завершается с ошибкой; Compose и его данные остаются доступны для диагностики.
+Флаг `-Performance` включает 1k, 2k и 10k progressive проверки. Миллион фактов
+проверяется отдельно по [INGESTION_BENCHMARK.md](INGESTION_BENCHMARK.md).
+Сквозной отчёт сохраняется в `output/playwright/acceptance.json`.

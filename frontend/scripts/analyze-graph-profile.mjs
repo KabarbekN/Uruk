@@ -55,8 +55,13 @@ for (const event of main) {
   row.inclusiveMs += event.dur / 1000;
   row.maxMs = Math.max(row.maxMs, event.dur / 1000);
   const at = (event.ts - origin) / 1000;
-  const phase = report.probe.marks.findLast((mark) => mark.at <= at)?.phase ?? 'navigation';
-  const phaseRow = ((phases[phase] ??= {})[event.name] ??= { count: 0, inclusiveMs: 0, maxMs: 0 });
+  const phase =
+    report.probe.marks.findLast((mark) => mark.at <= at)?.phase ?? 'navigation';
+  const phaseRow = ((phases[phase] ??= {})[event.name] ??= {
+    count: 0,
+    inclusiveMs: 0,
+    maxMs: 0,
+  });
   phaseRow.count++;
   phaseRow.inclusiveMs += event.dur / 1000;
   phaseRow.maxMs = Math.max(phaseRow.maxMs, event.dur / 1000);
@@ -70,7 +75,26 @@ log(
   JSON.stringify(
     {
       sampledTimeMs: buckets,
-      phasesInclusiveNotAdditive: Object.fromEntries(Object.entries(phases).map(([name, rows]) => [name, Object.fromEntries(Object.entries(rows).filter(([event]) => ['FunctionCall', 'Layout', 'Paint', 'PrePaint', 'UpdateLayoutTree', 'HitTest', 'Layerize', 'EventDispatch', 'Commit'].includes(event)))])),
+      phasesInclusiveNotAdditive: Object.fromEntries(
+        Object.entries(phases).map(([name, rows]) => [
+          name,
+          Object.fromEntries(
+            Object.entries(rows).filter(([event]) =>
+              [
+                'FunctionCall',
+                'Layout',
+                'Paint',
+                'PrePaint',
+                'UpdateLayoutTree',
+                'HitTest',
+                'Layerize',
+                'EventDispatch',
+                'Commit',
+              ].includes(event),
+            ),
+          ),
+        ]),
+      ),
       timelineInclusiveNotAdditive: Object.fromEntries(
         Object.entries(timeline)
           .sort((a, b) => b[1].inclusiveMs - a[1].inclusiveMs)

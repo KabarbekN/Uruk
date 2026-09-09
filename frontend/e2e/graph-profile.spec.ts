@@ -338,7 +338,9 @@ test('opt-in CDP graph first-paint and selection diagnostic', async ({
           .first()
           .evaluate((edge) => getComputedStyle(edge).pointerEvents),
       ).not.toBe('none');
-      await style.evaluate((element) => element.remove());
+      await style.evaluate((element) =>
+        element.parentNode?.removeChild(element),
+      );
     }
     await profileMark(page, 'select-node');
     await page.locator('.react-flow__node-semantic').first().click();

@@ -89,7 +89,13 @@ public class AnalysisEventController {
                     emitter.complete();
                     close.run();
                 } else if (batch.isEmpty()) emitter.send(SseEmitter.event().comment("keepalive"));
-            } catch (IOException | RuntimeException e) {
+            } catch (IOException e) {
+                try {
+                    emitter.complete();
+                } catch (Exception ignored) {
+                }
+                close.run();
+            } catch (RuntimeException e) {
                 emitter.completeWithError(e);
                 close.run();
             }

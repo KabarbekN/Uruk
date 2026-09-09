@@ -45,10 +45,7 @@ public class RepositorySnapshots {
         policy.validate(url);
         policy.validateRef(ref);
         Path directory = policy.workspaceRoot()
-                .resolve(org.toString())
-                .resolve(project.toString())
-                .resolve(run.toString())
-                .resolve(attempt.toString());
+                .resolve(run.toString() + "_" + attempt.toString().substring(0, 8));
         RepositoryPolicy.rejectLinks(directory);
         Files.createDirectories(directory);
         Path workspace = directory.resolve("source");

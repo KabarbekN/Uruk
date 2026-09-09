@@ -9,8 +9,8 @@ const Ajv = require('ajv/dist/2020.js');
 const requestSchema = JSON.parse(fs.readFileSync(new URL('../../analyzer-contract/schemas/v1/request.schema.json', import.meta.url), 'utf8'));
 const validateRequest = new Ajv({ strict: false }).compile(requestSchema);
 export const hash = text => `sha256:${crypto.createHash('sha256').update(text, 'utf8').digest('hex')}`;
-const defaults = new Set(['.git', 'target', 'node_modules', '.deps', '__pycache__']);
-const generated = new Set(['dist', 'build', 'generated', 'generated-sources']);
+const defaults = new Set(['.git', 'node_modules', '.deps', '__pycache__']);
+const generated = new Set(['target', 'dist', 'build', 'generated', 'generated-sources']);
 const within = (root, file) => { const rel = path.relative(root, file); return !rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel); };
 const exists = file => { try { fs.lstatSync(file); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } };
 
@@ -58,6 +58,8 @@ export class Run {
     this.descriptor = descriptor;
     this.request = {};
     this.facts = []; this.diagnostics = []; this.factIds = new Set();
+    this.factsById = new Map();
+    this.truncatedRelations = new Set();
     this.partial = new Set(); this.unknown = new Set();
     this.counts = { filesDiscovered: 0, filesParsed: 0, filesFailed: 0, filesSkipped: 0, sourceBytes: 0, entriesVisited: 0 };
     this.startedAt = new Date().toISOString(); this.deadline = Date.now() + 600000;
@@ -76,11 +78,31 @@ export class Run {
       subject: { kind, stableKey }, properties: { name, ownerKey: ownerKey ?? '', ...properties }, origin, confidence, evidence: [evidence] };
     const bytes = Buffer.byteLength(JSON.stringify(value)) + 1;
     if (this.bytesUsed + bytes > this.outputLimit - 131072) throw new Rejected('OUTPUT_LIMIT', 'Fact output byte budget reached');
-    this.bytesUsed += bytes; this.factIds.add(factId); this.facts.push(value);
+    this.bytesUsed += bytes; this.factIds.add(factId); this.factsById.set(factId, value); this.facts.push(value);
     return stableKey;
   }
   relation(sourceKey, targetKey, edgeKind, evidence, origin = 'STATIC_SYNTAX', confidence = 0.8) {
-    return this.fact('RELATION', `relation:${edgeKind}:${sourceKey}->${targetKey}`, edgeKind, sourceKey, evidence,
+    const key = `relation:${edgeKind}:${sourceKey}->${targetKey}`;
+    const previous = this.factsById.get(hash(key).slice(7));
+    if (previous) {
+      this.tick();
+      if (!previous.evidence.some(item => Object.keys(evidence).length === Object.keys(item).length && Object.keys(evidence).every(field => item[field] === evidence[field]))) {
+        if (previous.evidence.length >= 32) {
+          this.unknown.add('RELATION_EVIDENCE_LIMIT');
+          if (!this.truncatedRelations.has(key)) {
+            this.truncatedRelations.add(key);
+            this.diagnostic('RELATION_EVIDENCE_LIMIT', 'Relation retains the first 32 distinct evidence locations', evidence.filePath, evidence.startLine);
+          }
+          return key;
+        }
+        const addedBytes = Buffer.byteLength(JSON.stringify(evidence)) + 1;
+        if (this.bytesUsed + addedBytes > this.outputLimit - 131072) throw new Rejected('OUTPUT_LIMIT', 'Fact output byte budget reached');
+        this.bytesUsed += addedBytes;
+        previous.evidence.push(evidence);
+      }
+      return key;
+    }
+    return this.fact('RELATION', key, edgeKind, sourceKey, evidence,
       { sourceKey, targetKey, edgeKind }, origin, confidence);
   }
   load(requestPath) {
@@ -106,6 +128,7 @@ export class Run {
       if (policy[field] !== undefined && (!Number.isSafeInteger(policy[field]) || policy[field] <= 0)) throw new Rejected('INVALID_REQUEST', `policy.${field} must be a positive integer`, 20);
     }
     this.request = req;
+    if (policy.executeBuildScripts || policy.resolveDependencies) throw new Rejected('UNSUPPORTED_EXECUTION_POLICY', 'SAFE_STATIC requires build execution and dependency resolution disabled');
     this.deadline = Date.now() + Math.min(600, policy.maxDurationSeconds ?? 600) * 1000;
     this.outputLimit = Math.min(256 * 1024 * 1024, policy.maxOutputBytes ?? this.outputLimit);
     if (this.outputLimit < 262144) throw new Rejected('OUTPUT_LIMIT', 'At least 262144 output bytes are required');
@@ -133,6 +156,14 @@ export class Run {
       if (fs.statSync(ignorePath).size > 65536) throw new Rejected('IGNORE_LIMIT', '.semanticmapignore exceeds 64 KiB');
       matcher.add(fs.readFileSync(ignorePath, 'utf8'));
     }
+    // Selecting a nested component must not reopen an excluded parent tree.
+    let ancestor = '';
+    for (const part of path.relative(this.workspace, this.root).split(path.sep).filter(Boolean)) {
+      ancestor += part + '/';
+      if (defaults.has(part) || matcher.ignores(ancestor)
+        || (!policy.includeGeneratedSources && generated.has(part))
+        || (policy.includeTests === false && (['test', 'tests', '__tests__'].includes(part) || part.includes('.test.') || part.includes('.spec.')))) return [];
+    }
     const pending = [[this.root, 0]], sources = [];
     while (pending.length) {
       const [directory, depth] = pending.pop(); this.tick();
@@ -159,6 +190,9 @@ export class Run {
         if (policy.includeTests === false && (['test', 'tests', '__tests__'].includes(entry.name) || entry.name.includes('.test.') || entry.name.includes('.spec.'))) continue;
         if (entry.isDirectory()) { pending.push([absolutePath, depth + 1]); continue; }
         if (!extensions.has(path.extname(entry.name).toLowerCase())) continue;
+        if (entry.name.endsWith('.min.js') || entry.name.endsWith('.min.mjs') || entry.name.endsWith('.bundle.js')) {
+          this.counts.filesSkipped++; continue;
+        }
         if (!entry.isFile()) throw new Rejected('SPECIAL_FILE_REJECTED', 'Only regular source files can be read');
         if (++this.counts.filesDiscovered > 10000) throw new Rejected('FILE_LIMIT', 'Component exceeds file budget');
         if (fs.statSync(absolutePath).size > 2 * 1024 * 1024) {
@@ -182,7 +216,10 @@ export class Run {
   }
   write(output, exitCode = 0) {
     output = path.resolve(output); checkPath(output);
-    if (this.workspace && within(this.workspace, output)) throw new Rejected('OUTPUT_IN_WORKSPACE', 'Output must be outside the read-only workspace');
+    // Failed request validation can precede load() assigning this.workspace.
+    const declaredWorkspace = path.resolve(process.env.SEMANTIC_WORKSPACE ?? '/workspace');
+    const workspace = this.workspace ?? (exists(declaredWorkspace) ? fs.realpathSync(declaredWorkspace) : declaredWorkspace);
+    if (within(workspace, output)) throw new Rejected('OUTPUT_IN_WORKSPACE', 'Output must be outside the read-only workspace');
     fs.mkdirSync(output, { recursive: true });
     const partial = Boolean(this.partial.size || this.unknown.size || this.counts.filesFailed);
     if (!exitCode) exitCode = partial ? 10 : 0;

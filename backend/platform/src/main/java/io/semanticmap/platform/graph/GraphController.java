@@ -50,6 +50,11 @@ public class GraphController {
                         sourceLayer));
     }
 
+    @GetMapping("/analysis-runs/{id}/controllers")
+    public List<Map<String, Object>> controllers(@PathVariable UUID id) {
+        return queries.controllers(id);
+    }
+
     @GetMapping("/semantic/nodes/{id}")
     public Map<String, Object> node(@PathVariable UUID id) {
         return queries.node(id);

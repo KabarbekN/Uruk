@@ -43,6 +43,9 @@ describe('real request workflows with isolated test transport', () => {
       '2000',
     );
     await userEvent.click(
+      screen.getByRole('button', { name: 'Local server path' }),
+    );
+    await userEvent.click(
       screen.getByRole('button', { name: 'Use Spring fixture' }),
     );
     expect(screen.getByLabelText('Local repository path')).toHaveValue(

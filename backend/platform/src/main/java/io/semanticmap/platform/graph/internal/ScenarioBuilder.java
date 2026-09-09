@@ -20,7 +20,8 @@ public class ScenarioBuilder {
 
     private record Visit(Map<String, Object> node, int depth, List<Object> pathEvidence, double confidence) {}
 
-    private static final Set<String> ASYNC = Set.of("EVENT_PUBLICATION", "MESSAGE_CONSUMER", "EXTERNAL_CALL");
+    private static final Set<String> ASYNC =
+            Set.of("EVENT_PUBLICATION", "MESSAGE_PUBLICATION", "MESSAGE_CONSUMER", "EXTERNAL_CALL");
 
     public ScenarioBuilder(
             Db db,
@@ -78,6 +79,9 @@ public class ScenarioBuilder {
                     run,
                     id,
                     maxNodes + 1);
+            // The query budget is on relationships, which can include several edges to one node.
+            // Exhausting it must remain visible even if duplicates leave the member count below the cap.
+            if (next.size() > maxNodes) truncated = true;
             for (var node : next) {
                 UUID nextId = Semantics.uuid(node.get("id"));
                 if (seen.contains(nextId)) continue;
@@ -126,7 +130,16 @@ public class ScenarioBuilder {
                 members.stream().mapToDouble(Visit::confidence).min().orElse(0);
         model.put("confidence", confidence);
         String key = "scenario:" + entry.get("stableKey");
-        UUID nodeId = UUID.randomUUID(), scenarioId = UUID.randomUUID();
+        var existingNode = db.rows(
+                "SELECT id FROM semantic_node WHERE organization_id=? AND project_id=? AND analysis_run_id=? AND stable_key=?",
+                org,
+                project,
+                run,
+                key);
+        UUID nodeId = existingNode.isEmpty()
+                ? UUID.randomUUID()
+                : Semantics.uuid(existingNode.getFirst().get("id"));
+        UUID scenarioId = UUID.randomUUID();
         var structural = Map.of(
                 "entryPointKey",
                 entry.get("stableKey"),
@@ -160,7 +173,20 @@ public class ScenarioBuilder {
         String evidenceFingerprint = Semantics.hash(evidenceHashes);
         String fingerprint = Semantics.hash(List.of(structural, evidenceFingerprint));
         db.update(
-                "INSERT INTO semantic_node(id,organization_id,project_id,revision_id,analysis_run_id,stable_key,kind,name,label,confidence,support_level,properties,source_fact_ids,evidence_ids,fingerprint,structural_fingerprint,evidence_fingerprint) VALUES (?,?,?,?,?,?,'BUSINESS_SCENARIO',?,?,?,'SUPPORTED',?::jsonb,?::jsonb,?::jsonb,?,?,?)",
+                "DELETE FROM business_scenario WHERE organization_id=? AND project_id=? AND analysis_run_id=? AND entry_node_id=?",
+                org,
+                project,
+                run,
+                entry.get("id"));
+        db.update(
+                "DELETE FROM semantic_edge WHERE organization_id=? AND project_id=? AND analysis_run_id=? AND (source_id=? OR target_id=?) AND kind IN ('ENTRY_TO','PART_OF_SCENARIO')",
+                org,
+                project,
+                run,
+                nodeId,
+                nodeId);
+        db.update(
+                "INSERT INTO semantic_node(id,organization_id,project_id,revision_id,analysis_run_id,stable_key,kind,name,label,confidence,support_level,properties,source_fact_ids,evidence_ids,fingerprint,structural_fingerprint,evidence_fingerprint) VALUES (?,?,?,?,?,?,'BUSINESS_SCENARIO',?,?,?,'SUPPORTED',?::jsonb,?::jsonb,?::jsonb,?,?,?) ON CONFLICT (organization_id,project_id,analysis_run_id,stable_key) DO UPDATE SET name=excluded.name,label=excluded.label,confidence=excluded.confidence,support_level=excluded.support_level,properties=excluded.properties,source_fact_ids=excluded.source_fact_ids,evidence_ids=excluded.evidence_ids,fingerprint=excluded.fingerprint,structural_fingerprint=excluded.structural_fingerprint,evidence_fingerprint=excluded.evidence_fingerprint,unresolved=false",
                 nodeId,
                 org,
                 project,

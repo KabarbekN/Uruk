@@ -46,8 +46,12 @@ export function boundedLayout(
   nodes: LayoutNode[],
   pins: readonly string[],
 ): CanvasLayout | null {
+  const knownKeys = new Set(nodes.map((node) => node.stableKey));
   const valid = Object.entries(layout.positions).filter(
-    ([key, position]) => key.length <= 2048 && validPosition(position),
+    ([key, position]) =>
+      key.length <= 2048 &&
+      validPosition(position) &&
+      (knownKeys.size === 0 || knownKeys.has(key)),
   );
   const available = new Set(valid.map(([key]) => key));
   const current = new Set(
@@ -71,5 +75,9 @@ export function boundedLayout(
       .filter((node) => current.has(node.stableKey))
       .map((node) => [node.stableKey, layout.positions[node.stableKey]!]),
   ]);
-  return { positions, viewport: layout.viewport };
+  return {
+    positions,
+    viewport: layout.viewport,
+    pinnedStableKeys: [...new Set(pins)].filter((key) => retained.has(key)),
+  };
 }

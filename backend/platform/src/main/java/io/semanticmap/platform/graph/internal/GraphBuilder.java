@@ -27,12 +27,6 @@ public class GraphBuilder {
                 org,
                 project,
                 revision);
-        if (!db.rows(
-                        "SELECT id FROM semantic_node WHERE organization_id=? AND project_id=? AND analysis_run_id=? LIMIT 1",
-                        org,
-                        project,
-                        run)
-                .isEmpty()) return;
         eachFact(org, project, run, fact -> {
             if ("RELATION".equals(fact.get("kind"))) return;
             var properties = new LinkedHashMap<>(
@@ -70,13 +64,15 @@ public class GraphBuilder {
                 var previous = existing.getFirst();
                 evidenceIds = Semantics.union(Semantics.list(previous.get("evidenceIds")), evidenceIds);
                 factIds = Semantics.union(Semantics.list(previous.get("sourceFactIds")), factIds);
-                properties = mergeProperties(Semantics.map(previous.get("properties")), properties);
-                if (properties.containsKey("factAlternatives")) confidence = Math.min(confidence, .45);
-                kind = previous.get("kind").toString();
-                confidence = Math.min(confidence, ((Number) previous.get("confidence")).doubleValue());
+                if (!Boolean.TRUE.equals(previous.get("unresolved"))) {
+                    properties = mergeProperties(Semantics.map(previous.get("properties")), properties);
+                    if (properties.containsKey("factAlternatives")) confidence = Math.min(confidence, .45);
+                    kind = previous.get("kind").toString();
+                    confidence = Math.min(confidence, ((Number) previous.get("confidence")).doubleValue());
+                }
             }
             var allEvidence = db.rows(
-                    "SELECT DISTINCT snippet_hash,analyzer_id,analyzer_version,image_digest,origin FROM evidence WHERE organization_id=? AND project_id=? AND analysis_run_id=? AND id::text IN (SELECT jsonb_array_elements_text(?::jsonb)) ORDER BY snippet_hash,analyzer_id,analyzer_version,image_digest,origin",
+                    "SELECT DISTINCT snippet_hash,analyzer_id,analyzer_version,image_digest,origin FROM evidence WHERE organization_id=? AND project_id=? AND analysis_run_id=? AND id IN (SELECT (jsonb_array_elements_text(?::jsonb))::uuid) ORDER BY snippet_hash,analyzer_id,analyzer_version,image_digest,origin",
                     org,
                     project,
                     run,
@@ -88,7 +84,7 @@ public class GraphBuilder {
                     ? UUID.randomUUID()
                     : Semantics.uuid(existing.getFirst().get("id"));
             db.update(
-                    "INSERT INTO semantic_node(id,organization_id,project_id,revision_id,analysis_run_id,stable_key,kind,name,label,subtitle,confidence,support_level,properties,source_fact_ids,evidence_ids,fingerprint,structural_fingerprint,evidence_fingerprint) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?,?) ON CONFLICT (organization_id,project_id,analysis_run_id,stable_key) DO UPDATE SET properties=excluded.properties,source_fact_ids=excluded.source_fact_ids,evidence_ids=excluded.evidence_ids,confidence=excluded.confidence,support_level=excluded.support_level,fingerprint=excluded.fingerprint,structural_fingerprint=excluded.structural_fingerprint,evidence_fingerprint=excluded.evidence_fingerprint",
+                    "INSERT INTO semantic_node(id,organization_id,project_id,revision_id,analysis_run_id,stable_key,kind,name,label,subtitle,confidence,support_level,properties,source_fact_ids,evidence_ids,fingerprint,structural_fingerprint,evidence_fingerprint) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?,?) ON CONFLICT (organization_id,project_id,analysis_run_id,stable_key) DO UPDATE SET kind=excluded.kind,name=excluded.name,label=excluded.label,subtitle=excluded.subtitle,properties=excluded.properties,source_fact_ids=excluded.source_fact_ids,evidence_ids=excluded.evidence_ids,confidence=excluded.confidence,support_level=excluded.support_level,fingerprint=excluded.fingerprint,structural_fingerprint=excluded.structural_fingerprint,evidence_fingerprint=excluded.evidence_fingerprint,unresolved=false",
                     id,
                     org,
                     project,
@@ -153,9 +149,24 @@ public class GraphBuilder {
             for (var node : nodes) {
                 var props = Semantics.map(node.get("properties"));
                 if (!props.containsKey("normalizedCondition")) continue;
-                UUID assertionId = UUID.randomUUID();
+                var existingAssertion = db.rows(
+                        "SELECT id FROM assertion WHERE organization_id=? AND project_id=? AND analysis_run_id=? AND node_id=?",
+                        org,
+                        project,
+                        run,
+                        node.get("id"));
+                UUID assertionId = existingAssertion.isEmpty()
+                        ? UUID.randomUUID()
+                        : Semantics.uuid(existingAssertion.getFirst().get("id"));
+                if (!existingAssertion.isEmpty())
+                    db.update(
+                            "DELETE FROM assertion_evidence WHERE organization_id=? AND project_id=? AND analysis_run_id=? AND assertion_id=?",
+                            org,
+                            project,
+                            run,
+                            assertionId);
                 db.update(
-                        "INSERT INTO assertion(id,organization_id,project_id,analysis_run_id,node_id,category,normalized_condition,true_outcomes,false_outcomes,score_breakdown,model,confidence) VALUES (?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?)",
+                        "INSERT INTO assertion(id,organization_id,project_id,analysis_run_id,node_id,category,normalized_condition,true_outcomes,false_outcomes,score_breakdown,model,confidence) VALUES (?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?::jsonb,?) ON CONFLICT (node_id) DO UPDATE SET category=excluded.category,normalized_condition=excluded.normalized_condition,true_outcomes=excluded.true_outcomes,false_outcomes=excluded.false_outcomes,score_breakdown=excluded.score_breakdown,model=excluded.model,confidence=excluded.confidence",
                         assertionId,
                         org,
                         project,

@@ -1,5 +1,39 @@
 # Non-Java analyzer verification
 
+## Current workspace regression check — 2026-09-05
+
+Pinned dependencies were restored into the ignored local `.deps` and
+`node_modules` directories. This check used the bundled Windows Python 3.12 and
+Node runtimes, not rebuilt OCI images.
+
+- TypeScript: `node --test tests/parser.test.mjs`, **12 passed**. Includes real
+  compiler call resolution with repeated evidence, the 32-location ingestion
+  bound, output-byte accounting, rejected build/dependency execution policies,
+  schema validation and a Windows directory-junction regression.
+- Tree-sitter: `python -m unittest discover -s analyzers/tree-sitter/tests -v`,
+  **4 passed** with original-source evidence validation.
+- PostgreSQL: `python -m unittest discover -s analyzers/postgresql/tests -v`,
+  **20 passed, 1 skipped**. Cyclic includes and traversal execute independently
+  of the file-symlink case.
+- Shared transport: `python -m unittest discover -s analyzers/shared/tests
+  -p test_runtime.py -v`, **10 passed, 2 skipped**. Includes output-path
+  canonicalization, relation evidence retention/bounds and SAFE_STATIC policy
+  rejection. The file/output byte budgets run independently of symlink cases.
+
+The three skips are limited to actual symlink creation: Windows returned
+`WinError 1314` because this account lacks the required privilege. Unexpected
+symlink errors still fail the tests; these cases remain enabled on Linux or a
+Windows account with that privilege. The separate Node junction test passed.
+An initial attempt exposed those missing test prerequisites and has not been
+reported as a passing run.
+
+No OCI, vulnerability, or live-database acceptance was performed for these
+changes: Docker Desktop's Linux engine cannot start while host virtualization
+is unavailable. Earlier image evidence below is historical and does not verify
+the modified analyzer sources.
+
+## Historical verification
+
 Verified on 2026-09-02 in the supplied Windows workspace, using the bundled
 Python 3.12 and Node runtimes and Docker Desktop's Linux engine.
 

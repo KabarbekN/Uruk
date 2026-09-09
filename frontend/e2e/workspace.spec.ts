@@ -166,7 +166,9 @@ test('actual ELK worker, graph controls, saved layout, Monaco evidence and revie
         'rule:minimum-order': { x: expect.any(Number), y: expect.any(Number) },
       },
     });
-  await page.locator(`.react-flow__node[data-id="${rule.id}"]`).click();
+  const ruleNode = page.locator(`.react-flow__node[data-id="${rule.id}"]`);
+  await ruleNode.focus();
+  await ruleNode.press('Enter');
   const drawer = page.getByTestId('evidence-drawer');
   await expect(drawer).toBeVisible();
   await expect(
@@ -179,6 +181,20 @@ test('actual ELK worker, graph controls, saved layout, Monaco evidence and revie
     path: `output/playwright/evidence-${info.project.name}.png`,
     fullPage: true,
   });
+  await drawer
+    .getByRole('button', { name: 'Pin position', exact: true })
+    .click();
+  await expect
+    .poll(() => savedLayout)
+    .toMatchObject({ pinnedStableKeys: [rule.stableKey] });
+  await page.reload();
+  await expect(nodes).toHaveCount(3);
+  await expect(page.locator('.graph-overlay')).toHaveCount(0);
+  await ruleNode.focus();
+  await ruleNode.press('Enter');
+  await expect(
+    drawer.getByRole('button', { name: 'Unpin position', exact: true }),
+  ).toBeVisible();
   await drawer.getByRole('tab', { name: 'Human reviews' }).click();
   await drawer.getByRole('button', { name: 'Submit review' }).click();
   await expect
@@ -190,6 +206,20 @@ test('actual ELK worker, graph controls, saved layout, Monaco evidence and revie
       editedDescription: '',
     });
   await drawer.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(ruleNode).toBeFocused();
+  const edge = page.locator('.react-flow__edge[data-id="edge-1"]');
+  await edge.focus();
+  await edge.press('Space');
+  await expect(drawer).toBeVisible();
+  await expect(
+    drawer.getByRole('heading', { name: 'requires', exact: true }),
+  ).toBeVisible();
+  await expect(drawer.getByRole('tab', { name: 'Human reviews' })).toHaveCount(
+    0,
+  );
+  await page.keyboard.press('Escape');
+  await expect(drawer).toHaveCount(0);
+  await expect(edge).toBeFocused();
   await page.getByRole('tab', { name: 'Data ownership', exact: true }).click();
   await expect(page.locator('.react-flow__node-group')).toHaveCount(2);
   await expect(page.locator('.graph-overlay')).toHaveCount(0);

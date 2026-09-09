@@ -25,6 +25,10 @@ Windows PowerShell, from the repository root:
 .\scripts\dev.ps1 -Build
 ```
 
+Use `-StartDocker -Build` to start an installed Docker Desktop first. Both
+per-user and all-user Docker installations are supported. Analyzer images build
+their own dependencies; no prebuilt host JAR is required.
+
 Linux/macOS:
 
 ```sh
@@ -80,6 +84,13 @@ pnpm test:e2e
 Testcontainers requires access to the Docker daemon. Integration tests fail
 when Docker is unavailable; they are not silently reported as passing.
 See analyzer-specific READMEs for parser and contract tests.
+
+Windows can run these checks plus native parser tests inside the built images
+and the real Compose acceptance flow with `scripts/verify.ps1 -Build -Performance`.
+Set `JAVA_HOME` to Java 21 and have Node, pnpm and Chrome available. The script
+stops on failure and leaves application data available for diagnosis.
+`make e2e` defaults to the Compose UI on port 8088 and `/repository/fixtures`;
+direct host development can override `E2E_UI_URL` and `E2E_FIXTURE_ROOT`.
 
 ## Configuration
 

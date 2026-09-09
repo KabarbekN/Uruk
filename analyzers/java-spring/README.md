@@ -106,9 +106,23 @@ defaults, constraints, functions and triggers are owned by the PostgreSQL analyz
 The fixtures include Flyway SQL and configuration for that integration.
 
 Input limits are 2 MiB per Java file, 64 MiB total, and 5000 files, in addition to
-the request timeout/output budget. Test and generated source inclusion follow
-policy flags. Traversal and escaping source links are rejected. Source is never
-modified.
+the request timeout/output budget. Discovery also limits all visited entries to
+100,000 and directory depth to 64, before allocating the parser's source model.
+Excluded directories are pruned immediately. Test and generated source inclusion
+follow policy flags. The workspace-root `.semanticmapignore` supports anchored
+paths, directory patterns, `*`, `**`, `?`, escaped literals and ordered `!`
+negation; ignored parent directories are not traversed. Ignore input is limited
+to 64 KiB and 1,024 patterns of at most 1,024 characters each. Character classes
+in ignore patterns are currently treated as literal characters.
+Traversal and source links are rejected, including component links and special
+entries. Reads are bounded even if a file grows after its size check. Malformed
+UTF-8 and binary files retain diagnostics while valid files can still be parsed.
+Source is never modified.
+
+Repeated relation facts aggregate distinct evidence locations. At 32 locations,
+the relation remains within platform ingestion limits and further locations
+produce `RELATION_EVIDENCE_LIMIT` with partial coverage. The analyzer never
+reports exhaustive evidence after this bound is reached.
 
 ## Fixtures And Verification
 
@@ -149,14 +163,17 @@ Verified on 2026-09-02 with the supplied OpenJDK 21.0.1 and Maven 3.9.14:
 ## Container
 
 ~~~sh
-docker build -t semanticmap/java-spring:0.1.0 analyzers/java-spring
+docker build -t semanticmap/java-spring:0.1.0 -f analyzers/java-spring/Dockerfile .
 docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=256m \
   --memory 2g --cpus 2 \
   -v "$SOURCE:/workspace:ro" -v "$INPUT:/input:ro" -v "$OUTPUT:/output" \
   semanticmap/java-spring:0.1.0 analyze --request /input/request.json --output /output
 ~~~
 
-Dockerfile pins eclipse-temurin:21.0.8_9-jdk-jammy and runs as UID/GID 65532.
+Run the build from the repository root. A pinned Maven/JDK build stage compiles
+the analyzer and shared contract from source, so a clean checkout needs no
+prebuilt local JAR. The runtime pins eclipse-temurin:21.0.12_8-jdk-jammy and runs
+as UID/GID 65532.
 OpenRewrite requires the JDK compiler modules, so a JRE-only image is insufficient.
 The output mount must be writable by that UID. Publish the built analyzer image
 and register its immutable registry digest. A runner may pass the actual digest

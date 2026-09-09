@@ -29,11 +29,12 @@ pnpm test:e2e
 pnpm format:check
 ```
 
-On this Windows machine, the bundled Node executable is
-`C:/Users/Nurgissa/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe`.
-Add its directory to PATH before running the bundled pnpm command. Windows
-Playwright uses installed Chrome; Linux uses Playwright Chromium. Override with
-`PLAYWRIGHT_CHANNEL` or `PLAYWRIGHT_BASE_URL` when needed.
+Windows Playwright uses installed Chrome; Linux uses Playwright Chromium.
+Override with `PLAYWRIGHT_CHANNEL` when needed. After `pnpm build`, set
+`PLAYWRIGHT_PRODUCTION=true` to run acceptance against production preview on
+port 5174. `PLAYWRIGHT_BASE_URL` selects an already running server and prevents
+Playwright from starting another server. The build allowlist permits only
+esbuild's required native-binary setup.
 
 ## Parent Integration
 
@@ -98,7 +99,9 @@ keyed by stable keys; the parent layout endpoint carries baseline positions to
 new revisions. ELK computes compound data-ownership lanes in a dedicated worker.
 React Flow node components are memoized. Monaco is lazy loaded, read-only, and
 shows original evidence line numbers. The drawer can be resized with pointer or
-arrow keys on its separator.
+arrow keys on its separator. Enter or Space on a focused graph node or edge
+opens its evidence; closing the drawer restores focus to the selected element.
+Diff selectors use completed analyses and reset when navigating to another run.
 
 Routes: `/projects`, `/projects/:id`, `/projects/:id/analyses`,
 `/projects/:id/review`, `/analyses/:id/canvas`, `/analyses/:id/diff`,

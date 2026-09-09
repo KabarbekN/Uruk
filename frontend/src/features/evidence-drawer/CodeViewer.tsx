@@ -8,6 +8,7 @@ import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
 import 'monaco-editor/esm/vs/basic-languages/python/python.contribution';
 import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution';
 import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution';
+import { useTheme } from '../../shared/lib/theme';
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 const languages: Record<string, string> = {
@@ -28,13 +29,18 @@ export default function CodeViewer({
   filePath,
   startLine,
   endLine,
+  highlightStartLine,
+  highlightEndLine,
 }: {
   snippet: string;
   filePath: string;
   startLine: number;
   endLine: number;
+  highlightStartLine?: number;
+  highlightEndLine?: number;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const theme = useTheme((state) => state.theme);
   useEffect(() => {
     if (!container.current) return;
     const model = monaco.editor.createModel(
@@ -43,7 +49,7 @@ export default function CodeViewer({
     );
     const editor = monaco.editor.create(container.current, {
       model,
-      theme: 'vs',
+      theme: theme === 'dark' ? 'vs-dark' : 'vs',
       readOnly: true,
       domReadOnly: true,
       automaticLayout: true,
@@ -63,23 +69,30 @@ export default function CodeViewer({
       padding: { top: 12, bottom: 12 },
       stickyScroll: { enabled: false },
     });
+    const hlStart = highlightStartLine
+      ? Math.max(1, highlightStartLine - startLine + 1)
+      : 1;
+    const hlEnd = highlightEndLine
+      ? Math.min(model.getLineCount(), highlightEndLine - startLine + 1)
+      : Math.min(model.getLineCount(), endLine - startLine + 1);
+
     const decoration = editor.createDecorationsCollection([
       {
-        range: new monaco.Range(
-          1,
-          1,
-          Math.min(model.getLineCount(), endLine - startLine + 1),
-          1,
-        ),
+        range: new monaco.Range(hlStart, 1, hlEnd, 1),
         options: { isWholeLine: true, className: 'evidence-source-line' },
       },
     ]);
+
+    if (highlightStartLine && highlightStartLine > startLine) {
+      editor.revealLineInCenter(hlStart);
+    }
+
     return () => {
       decoration.clear();
       editor.dispose();
       model.dispose();
     };
-  }, [snippet, filePath, startLine, endLine]);
+  }, [snippet, filePath, startLine, endLine, highlightStartLine, highlightEndLine, theme]);
   return (
     <div ref={container} className="code-viewer" data-testid="source-viewer" />
   );

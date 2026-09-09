@@ -370,6 +370,39 @@ class SpringAnalyzerTest {
         assertEquals(Set.of("/v1/items", "/v1/items/", "/v2/items", "/v2/items/"), paths);
     }
 
+    @Test
+    void repeatedCallEdgesRespectIngestionEvidenceLimitsWithExplicitCoverage() throws Exception {
+        Path workspace = Files.createDirectory(temporary.resolve("repeated-calls"));
+        Files.writeString(
+                workspace.resolve("Calls.java"),
+                "class Calls { void target() {} void caller() {\n" + "target();\n".repeat(40) + "}}\n");
+        Path input = temporary.resolve("repeated-calls.json");
+        SpringAnalyzerCli.JSON.writeValue(input.toFile(), request());
+        Path output = temporary.resolve("repeated-calls-output");
+        assertEquals(10, run(input, output, workspace));
+        List<Protocol.Fact> edges = facts(output).stream()
+                .filter(fact -> "CALLS".equals(fact.properties().get("edgeKind")))
+                .toList();
+        assertEquals(1, edges.size());
+        assertEquals(32, edges.getFirst().evidence().size());
+        assertTrue(Files.readString(output.resolve("diagnostics.ndjson")).contains("RELATION_EVIDENCE_LIMIT"));
+    }
+
+    @Test
+    void invalidSourceEncodingRetainsDiagnosticsEvenWithoutAValidJavaFile() throws Exception {
+        Path workspace = Files.createDirectory(temporary.resolve("invalid-encoding"));
+        Files.write(workspace.resolve("Broken.java"), new byte[] {(byte) 0xff});
+        Path input = temporary.resolve("invalid-encoding.json");
+        SpringAnalyzerCli.JSON.writeValue(input.toFile(), request());
+        Path output = temporary.resolve("invalid-encoding-output");
+        assertEquals(10, run(input, output, workspace));
+        assertTrue(facts(output).isEmpty());
+        assertTrue(Files.readString(output.resolve("diagnostics.ndjson")).contains("INVALID_ENCODING"));
+        JsonNode manifest =
+                SpringAnalyzerCli.JSON.readTree(output.resolve("manifest.json").toFile());
+        assertEquals("PARTIAL", manifest.path("status").asText());
+    }
+
     static int run(Path input, Path output, Path workspace) {
         ByteArrayOutputStream errors = new ByteArrayOutputStream();
         int code = SpringAnalyzerCli.run(

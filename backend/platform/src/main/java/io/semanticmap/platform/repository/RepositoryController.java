@@ -28,6 +28,7 @@ public class RepositoryController {
     private final GitClient git;
     private final RepositorySnapshots snapshots;
     private final RevisionStore revisions;
+    private final CredentialStore credentialStore;
 
     public RepositoryController(
             Db db,
@@ -37,7 +38,8 @@ public class RepositoryController {
             RepositoryPolicy policy,
             GitClient git,
             RepositorySnapshots snapshots,
-            RevisionStore revisions) {
+            RevisionStore revisions,
+            CredentialStore credentialStore) {
         this.db = db;
         this.tenant = tenant;
         this.access = access;
@@ -46,14 +48,39 @@ public class RepositoryController {
         this.git = git;
         this.snapshots = snapshots;
         this.revisions = revisions;
+        this.credentialStore = credentialStore;
     }
 
     public record Connect(
             @NotBlank @Size(max = 2048) String url,
             @Size(max = 200) String branch,
-            @Size(max = 100) String credentialsReference) {}
+            @Size(max = 100) String credentialsReference,
+            @Size(max = 1000) String personalAccessToken) {}
 
     public record Fetch(String ref) {}
+
+    public record TestAccess(
+            @NotBlank @Size(max = 2048) String url,
+            @Size(max = 1000) String token,
+            @Size(max = 100) String credentialsReference) {}
+
+    public record TestAccessResult(boolean connected, List<String> branches, String defaultBranch) {}
+
+    @PostMapping("/api/v1/repositories/test-access")
+    public TestAccessResult testAccess(@Valid @RequestBody TestAccess request) throws IOException {
+        String token = request.token();
+        if ((token == null || token.isBlank()) && request.credentialsReference() != null) {
+            token = credentialStore.resolveToken(tenant.orgId(), request.credentialsReference());
+            if (token == null) {
+                token = request.credentialsReference();
+            }
+        }
+        List<String> branches = git.listBranches(request.url(), token != null && !token.isBlank() ? token : null);
+        String defaultBranch = branches.contains("main")
+                ? "main"
+                : (branches.contains("master") ? "master" : (branches.isEmpty() ? "main" : branches.getFirst()));
+        return new TestAccessResult(true, branches, defaultBranch);
+    }
 
     @PostMapping("/api/v1/projects/{project}/repositories")
     @Transactional
@@ -63,7 +90,13 @@ public class RepositoryController {
         access.project(project);
         access.requireProjectRole(project, "PROJECT_ADMIN");
         policy.validate(request.url());
-        policy.validateCredentials(request.credentialsReference());
+        String credRef = request.credentialsReference();
+        if (request.personalAccessToken() != null
+                && !request.personalAccessToken().isBlank()) {
+            credRef = credentialStore.storeToken(
+                    tenant.orgId(), request.personalAccessToken().trim(), "Token for " + request.url());
+        }
+        policy.validateCredentials(credRef);
         String branch = request.branch() == null ? "HEAD" : request.branch();
         policy.validateRef(branch);
         var result = db.one(
@@ -73,7 +106,7 @@ public class RepositoryController {
                 project,
                 request.url(),
                 branch,
-                request.credentialsReference());
+                credRef);
         audit.record(
                 tenant.orgId(),
                 project,

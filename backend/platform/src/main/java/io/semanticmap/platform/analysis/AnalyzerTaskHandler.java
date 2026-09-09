@@ -97,9 +97,9 @@ class AnalyzerTaskHandler implements TaskHandler {
         Path workspace = Path.of((String) run.get("workspacePath"));
         Path directory = workspace
                 .getParent()
-                .resolve("executions")
-                .resolve(executionId.toString())
-                .resolve(task.token().toString());
+                .resolve("x")
+                .resolve(executionId.toString().substring(0, 8) + "_"
+                        + task.token().toString().substring(0, 8));
         var result = runner.execute(new AnalyzerExecutionPort.Command(
                 executionId,
                 task.token(),

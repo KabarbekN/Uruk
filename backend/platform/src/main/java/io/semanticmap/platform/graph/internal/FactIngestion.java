@@ -63,7 +63,7 @@ public class FactIngestion {
             try (var lines = new BoundedLines(
                     new BufferedInputStream(Files.newInputStream(facts, LinkOption.NOFOLLOW_LINKS)),
                     1024 * 1024,
-                    128L * 1024 * 1024)) {
+                    512L * 1024 * 1024)) {
                 BoundedLines.Line line;
                 while ((line = lines.next()) != null) {
                     lineNumber++;

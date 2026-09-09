@@ -18,6 +18,9 @@ public class AiConfiguration {
     private final String apiKey;
     private final Set<String> localHosts;
     private final int dailyAttempts;
+    private volatile String activeModel;
+    private volatile String activeBaseUrl;
+    private volatile String activeApiKey;
 
     @Value("${semantic.ai.input-usd-per-million:-1}")
     private BigDecimal inputUsdPerMillion = BigDecimal.valueOf(-1);
@@ -29,7 +32,8 @@ public class AiConfiguration {
             @Value("${semantic.ai.base-url:}") String baseUrl,
             @Value("${semantic.ai.model:}") String model,
             @Value("${semantic.ai.api-key:}") String apiKey,
-            @Value("${semantic.ai.local-hosts:localhost,127.0.0.1,::1,[::1]}") String localHosts,
+            @Value("${semantic.ai.local-hosts:localhost,127.0.0.1,::1,[::1],ollama,semanticmap-ollama}")
+                    String localHosts,
             @Value("${semantic.ai.daily-attempt-quota:100}") int dailyAttempts) {
         this.baseUrl = baseUrl.strip().replaceAll("/+$", "");
         this.model = model.strip();
@@ -43,11 +47,13 @@ public class AiConfiguration {
 
     public void validate(String mode, boolean remoteAllowed) {
         if (mode.equals("DISABLED")) return;
-        if (model.isBlank() || model.length() > 200 || baseUrl.isBlank())
-            fail("AI provider URL and model must be configured");
+        String m = model();
+        String b = baseUrl();
+        String k = apiKey();
+        if (m.isBlank() || m.length() > 200 || b.isBlank()) fail("AI provider URL and model must be configured");
         URI uri;
         try {
-            uri = URI.create(baseUrl);
+            uri = URI.create(b);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid configured AI provider URL");
         }
@@ -62,7 +68,7 @@ public class AiConfiguration {
                 fail("Provider host is not configured as controlled infrastructure");
         } else if (mode.equals("REMOTE_PROVIDER")) {
             if (!remoteAllowed) fail("Remote AI requires organization administrator opt-in");
-            if (!"https".equals(uri.getScheme()) || apiKey.isBlank())
+            if (!"https".equals(uri.getScheme()) || k.isBlank())
                 fail("Remote AI requires HTTPS and a configured API key");
         } else fail("Unknown AI mode");
     }
@@ -77,15 +83,32 @@ public class AiConfiguration {
     }
 
     public String baseUrl() {
-        return baseUrl;
+        return activeBaseUrl != null && !activeBaseUrl.isBlank() ? activeBaseUrl : baseUrl;
     }
 
     public String model() {
-        return model;
+        return activeModel != null && !activeModel.isBlank() ? activeModel : model;
     }
 
     public String apiKey() {
+        if (activeApiKey != null && !activeApiKey.isBlank()) return activeApiKey;
         return apiKey.isBlank() ? "local-provider" : apiKey;
+    }
+
+    public void configure(String model, String baseUrl, String apiKey) {
+        if (model != null && !model.isBlank()) this.activeModel = model.strip();
+        if (baseUrl != null && !baseUrl.isBlank())
+            this.activeBaseUrl = baseUrl.strip().replaceAll("/+$", "");
+        if (apiKey != null) this.activeApiKey = apiKey.strip();
+    }
+
+    public boolean isLocal() {
+        try {
+            java.net.URI uri = java.net.URI.create(baseUrl());
+            return uri.getHost() != null && localHosts.contains(uri.getHost().toLowerCase(java.util.Locale.ROOT));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public int dailyAttempts() {

@@ -55,6 +55,13 @@ class IngestionTaskHandler implements TaskHandler {
                         "facts.ingestion.completed",
                         "Analyzer facts validated and ingested",
                         70);
+                events.append(
+                        task.organizationId(),
+                        task.projectId(),
+                        task.runId(),
+                        "canvas.incremental.updated",
+                        "Новые находки добавлены на карту",
+                        72);
             } else
                 events.append(
                         task.organizationId(),

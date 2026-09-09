@@ -291,16 +291,18 @@ public class SemanticDiffer {
                             edge.get("sourceKey"),
                             edge.get("targetKey"),
                             edge.get("kind"));
-                    if (!counterpart.isEmpty()) continue;
-                    var node = new LinkedHashMap<>(edge);
-                    node.put(
-                            "stableKey",
-                            "edge:"
-                                    + Semantics.hash(
-                                            List.of(edge.get("sourceKey"), edge.get("kind"), edge.get("targetKey"))));
-                    node.put(
-                            "properties",
-                            Map.of("sourceKey", edge.get("sourceKey"), "targetKey", edge.get("targetKey")));
+                    if (!counterpart.isEmpty()) {
+                        // Compare matched edges only on the baseline pass. IDs and evidence IDs are
+                        // revision-local; their semantic identity and verified evidence are not.
+                        if (removed) {
+                            var before = edgeSnapshot(org, project, from, edge);
+                            var after = edgeSnapshot(org, project, to, counterpart.getFirst());
+                            for (var change : compare(before, after))
+                                save(org, project, from, to, before, after, change);
+                        }
+                        continue;
+                    }
+                    var node = edgeSnapshot(org, project, run, edge);
                     save(
                             org,
                             project,
@@ -315,5 +317,29 @@ public class SemanticDiffer {
                 cursor = Semantics.uuid(page.getLast().get("id"));
             }
         }
+    }
+
+    private Map<String, Object> edgeSnapshot(UUID org, UUID project, UUID run, Map<String, Object> edge) {
+        var result = new LinkedHashMap<>(edge);
+        result.put(
+                "stableKey",
+                "edge:" + Semantics.hash(List.of(edge.get("sourceKey"), edge.get("kind"), edge.get("targetKey"))));
+        var properties = new LinkedHashMap<>(Semantics.map(edge.get("properties")));
+        properties.put("sourceKey", edge.get("sourceKey"));
+        properties.put("targetKey", edge.get("targetKey"));
+        result.put("properties", properties);
+        var evidence = db.rows(
+                "SELECT DISTINCT snippet_hash,analyzer_id,analyzer_version,image_digest,origin FROM evidence WHERE organization_id=? AND project_id=? AND analysis_run_id=? AND id::text IN (SELECT jsonb_array_elements_text(?::jsonb)) ORDER BY snippet_hash,analyzer_id,analyzer_version,image_digest,origin",
+                org,
+                project,
+                run,
+                db.json(edge.get("evidenceIds")));
+        String evidenceFingerprint = Semantics.hash(evidence);
+        result.put("evidenceFingerprint", evidenceFingerprint);
+        result.put(
+                "fingerprint",
+                Semantics.hash(
+                        List.of(Semantics.fingerprint(edge.get("kind").toString(), properties), evidenceFingerprint)));
+        return result;
     }
 }
